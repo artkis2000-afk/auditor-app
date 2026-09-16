@@ -19,5 +19,5 @@
     },
     "types": ["node"]
   },
-  "include": ["shared/**/*", "vitest.config.ts"]
+  "include": ["shared/**/*", "domain/**/*", "vitest.config.ts"]
 }
