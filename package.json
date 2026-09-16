@@ -1,0 +1,20 @@
+{
+  "name": "fury-zapchasti",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ФУРЫ ЗАПЧАСТИ — система аудита закупок автозапчастей (standalone: Firestore + Gemini). Reverse-engineered рефакторинг приложения из Google AI Studio.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.0"
+  }
+}
