@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { truckPlacementSchema, type TruckPlacement } from '../enums/index.js';
+import { truckPlacementSchema, invoiceStatusSchema, type TruckPlacement } from '../enums/index.js';
 import type { Invoice, InvoiceItem, AnomalyFlag } from '../schemas/index.js';
 
 // Позиция во входных данных накладной (до сплита по количеству)
@@ -47,6 +47,13 @@ export const invoiceIdsRequestSchema = z.object({
   ids: z.array(z.string()).min(1),
 });
 export type InvoiceIdsRequest = z.infer<typeof invoiceIdsRequestSchema>;
+
+// Query для списка накладных (GET /api/invoices)
+export const invoicesListQuerySchema = z.object({
+  status: invoiceStatusSchema.optional(),
+  supplierId: z.string().optional(),
+});
+export type InvoicesListQuery = z.infer<typeof invoicesListQuerySchema>;
 
 // Одобрение конкретного флага
 export const approveFlagRequestSchema = z.object({

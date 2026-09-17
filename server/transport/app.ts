@@ -4,6 +4,7 @@ import type { AppDeps } from './deps.js';
 import { errorHandler } from './errors.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { createAuthRouter } from './routes/authRoutes.js';
+import { createInvoiceRouter } from './routes/invoiceRoutes.js';
 
 /**
  * Фабрика Express-приложения (DI). Цепочка: request → validation → auth → authorization → service → response.
@@ -15,6 +16,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.use('/api', createHealthRouter());
   app.use('/api/auth', createAuthRouter(deps));
+  app.use('/api/invoices', createInvoiceRouter(deps));
 
   // Центральный обработчик ошибок — последним
   app.use(errorHandler());
