@@ -74,13 +74,47 @@
   После правки id позиций меняются → ранее одобренные аномалии снова становятся активными.
 - **Перенос:** как есть (поведение сохранено). Кандидат на стабильные id позиций.
 
-## KI-8 — delete: soft-инвойс, но hard-delete позиций; нет rollback для ряда операций
+## KI-8 — delete: soft-инвойс, но hard-delete позиций (уточнено про rollback)
 - **Статус:** OPEN
-- **Где (исходник):** delete/bulk-delete (позиции удаляются из коллекции), rollback-switch.
+- **Где (исходник):** delete/bulk-delete (позиции удаляются из коллекции).
 - **Суть:** Инвойс помечается deletedAt (soft), а его invoiceItems удаляются жёстко.
-  Откат (audit rollback) в оригинале НЕ поддержан для `invoice_manual_create`, `invoice_delete`,
-  `invoice_reconcile` → эти действия необратимы через UI (данные восстановимы только из audit-снимка).
-- **Перенос:** как есть. Rollback будет реализован отдельной подфазой (по плану).
+- **Уточнение (после аудита rollback):** ранее было ошибочно указано, что rollback не поддерживает
+  manual_create/delete. Фактически legacy rollback ПОДДЕРЖИВАЕТ откат `invoice_manual_create`,
+  `invoice_ocr`, `invoice_delete` (восстановление позиций из snapshot), `invoice_edit`, `invoice_confirm`,
+  `invoice_approve_flag`, `invoice_approve_all_flags`. НЕ поддерживает: `invoice_reconcile`,
+  `vehicle_*`, `warehouse_*`, `item_placement_update`. Реализовано в AuditService.rollback 1:1.
+- **Перенос:** как есть.
+
+## KI-9 — rollback supplier/nomenclature/settings НЕ пересчитывает аномалии
+- **Статус:** OPEN
+- **Где (исходник):** rollback-switch (кейсы supplier_*/nomenclature_*/settings_update без recalc).
+- **Суть:** Откат правки номенклатуры (в т.ч. normativeServiceDays) или настроек (anomalyThreshold)
+  влияет на аномалии, но legacy rollback этих кейсов НЕ вызывает пересчёт → флаги остаются устаревшими
+  до следующей invoice-операции. Только invoice-кейсы rollback делают recalc.
+- **Перенос:** как есть. Предлагается (отдельно) добавить recalc в эти кейсы.
+
+## KI-10 — GET /nomenclature выполняет запись (авто-синк из позиций накладных)
+- **Статус:** OPEN
+- **Где (исходник):** GET /api/nomenclature.
+- **Суть:** Операция чтения списка номенклатуры дополнительно СОЗДАЁТ записи справочника для позиций
+  накладных, которых нет в каталоге, и меняет invoiceItems (nomenclatureId/matchedNomenclatureId).
+  Побочная запись на чтении. Перенесено в NomenclatureService.list.
+- **Перенос:** как есть. Предлагается вынести синк в явную операцию/фон.
+
+## KI-11 — create/update номенклатуры НЕ пересчитывают аномалии
+- **Статус:** OPEN
+- **Где (исходник):** POST/PUT /api/nomenclature.
+- **Суть:** Изменение normativeServiceDays напрямую влияет на детект дубликатов, но обработчики
+  не вызывают recalc → аномалии устаревают до следующей invoice-операции.
+- **Перенос:** как есть. Предлагается (отдельно) вызывать recalc при изменении норматива.
+
+## KI-12 — settings_update пишет oldValues=null → откат настроек нерабочий
+- **Статус:** OPEN
+- **Где (исходник):** POST /api/settings (logAction с oldValues=null) + rollback settings_update.
+- **Суть:** Аудит настроек не сохраняет прежнее состояние (oldValues=null), поэтому rollback
+  `settings_update` всегда падает с ошибкой «Предыдущие настройки отсутствуют».
+- **Перенос:** как есть (SettingsService.update пишет oldValues=null). Предлагается сохранять прежние
+  настройки в oldValues, чтобы откат заработал.
 
 ---
 

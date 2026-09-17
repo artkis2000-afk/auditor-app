@@ -21,6 +21,9 @@ export const invoiceItemSchema = z.object({
   truckPlacement: truckPlacementSchema.nullable().optional(),
 
   // --- денормализация (PHASE 3, optional для совместимости) ---
+  // recognizedDate/supplierName на позиции: используются складом (WH-*) и финансами
+  // (в legacy эти поля хранятся на складских позициях и подставляются в GET /invoice-items).
+  recognizedDate: z.string().nullable().optional(),
   invoiceDate: z.string().optional(),
   invoiceStatus: invoiceStatusSchema.optional(),
   supplierId: z.string().nullable().optional(),
