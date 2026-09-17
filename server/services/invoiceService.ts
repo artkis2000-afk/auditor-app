@@ -1,5 +1,12 @@
 import type { AnomalyFlag, Invoice, InvoiceItem } from '../../shared/index.js';
-import type { ManualInvoiceRequest, InvoiceUpdateRequest } from '../../shared/index.js';
+import type {
+  ManualInvoiceRequest,
+  InvoiceUpdateRequest,
+  ApproveFlagRequest,
+  InvoiceListEntry,
+  InvoiceDetail,
+} from '../../shared/index.js';
+import { findBestNomenclatureMatches } from '../../domain/matching/index.js';
 import type { BatchOp } from '../db/firestoreGateway.js';
 import type { ServiceContext } from './context.js';
 import { AnomalyService } from './anomalyService.js';
@@ -309,5 +316,135 @@ export class InvoiceService {
     }
 
     return { reconciledCount: reconciled.length };
+  }
+
+  /** Список накладных с бизнес-данными (перенос GET /api/invoices). imagePath-плейсхолдер — на routes. */
+  async list(filter: { status?: string; supplierId?: string } = {}): Promise<InvoiceListEntry[]> {
+    const [invoices, items, flags, users] = await Promise.all([
+      this.ctx.repositories.invoices.getAll(),
+      this.ctx.repositories.invoiceItems.getAll(),
+      this.ctx.repositories.anomalyFlags.getAll(),
+      this.ctx.repositories.users.getAll(),
+    ]);
+
+    let active = invoices.filter((i) => !i.deletedAt);
+    if (filter.status) active = active.filter((i) => i.status === filter.status);
+    if (filter.supplierId) active = active.filter((i) => i.supplierId === filter.supplierId);
+    active.sort((a, b) => b.recognizedDate.localeCompare(a.recognizedDate));
+
+    return active.map((inv) => {
+      const uploader = users.find((u) => u.id === inv.uploadedBy);
+      const invItems = items.filter((it) => it.invoiceId === inv.id);
+      const flagsCount = inv.isReconciled ? 0 : flags.filter((f) => f.invoiceId === inv.id && !f.isResolved).length;
+      const { imagePath: _imagePath, supplierName: _supplierName, ...rest } = inv;
+      return {
+        ...rest,
+        supplierName: inv.supplierName || inv.rawSupplierName || 'Не распознан',
+        uploaderName: uploader?.fullName ?? 'Неизвестно',
+        flagsCount,
+        items: invItems.map((it) => ({
+          id: it.id,
+          rawName: it.rawName,
+          matchedNomenclatureId: it.matchedNomenclatureId,
+          vehicleId: it.vehicleId,
+          truckPlacement: it.truckPlacement,
+        })),
+      };
+    });
+  }
+
+  /** Детальная накладная с подсказками номенклатуры (перенос GET /api/invoices/:id). */
+  async getById(id: string): Promise<InvoiceDetail | null> {
+    const invoice = await this.ctx.repositories.invoices.getById(id);
+    if (!invoice || invoice.deletedAt) return null;
+
+    const [items, flags, users, nomenclature, aliases] = await Promise.all([
+      this.ctx.repositories.invoiceItems.listByInvoice(id),
+      this.ctx.repositories.anomalyFlags.listByInvoice(id),
+      this.ctx.repositories.users.getAll(),
+      this.ctx.repositories.nomenclature.getAll(),
+      this.ctx.repositories.nomenclatureAliases.getAll(),
+    ]);
+
+    const uploader = users.find((u) => u.id === invoice.uploadedBy);
+    const itemsWithMatches = items.map((it) => ({
+      ...it,
+      suggestions: findBestNomenclatureMatches(it.rawName, nomenclature, aliases),
+    }));
+
+    return {
+      invoice,
+      items: itemsWithMatches,
+      flags,
+      supplierName: invoice.supplierName || invoice.rawSupplierName || 'Не распознан',
+      uploaderName: uploader?.fullName ?? 'Неизвестно',
+    };
+  }
+
+  /**
+   * Одобрение (resolve) конкретного флага (перенос POST /api/invoices/:id/approve-flag).
+   * Boss-only авторизация — на transport layer (AuthorizationService), здесь не дублируется.
+   */
+  async approveFlag(
+    invoiceId: string,
+    input: ApproveFlagRequest,
+    actor: Actor,
+  ): Promise<{ success: true; flag: AnomalyFlag; invoiceStatus: string }> {
+    const flags = await this.ctx.repositories.anomalyFlags.getAll();
+    let flag = input.flagId ? flags.find((f) => f.id === input.flagId) : undefined;
+    if (!flag && input.invoiceItemId && input.flagType) {
+      flag = flags.find(
+        (f) => f.invoiceId === invoiceId && f.invoiceItemId === input.invoiceItemId && f.flagType === input.flagType,
+      );
+    }
+    if (!flag) throw new InvoiceServiceError('NOT_FOUND', 'Аномалия не найдена');
+
+    const now = this.ctx.clock.now();
+    const resolved: AnomalyFlag = { ...flag, isResolved: true, resolvedBy: actor.username, resolvedAt: now };
+    await this.ctx.gateway.commitBatch([{ type: 'set', collection: 'anomalyFlags', id: flag.id, data: asDoc(resolved) }]);
+    await this.anomaly.recalculateAll();
+
+    const invoiceStatus = (await this.ctx.repositories.invoices.getById(invoiceId))?.status ?? 'confirmed';
+    await this.audit.log({
+      userId: actor.id,
+      username: actor.username,
+      action: 'invoice_approve_flag',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      oldValues: { flagType: flag.flagType, isResolved: false },
+      newValues: { flagType: flag.flagType, isResolved: true, invoiceStatus },
+    });
+    return { success: true, flag: resolved, invoiceStatus };
+  }
+
+  /** Одобрение всех флагов накладной (перенос POST /api/invoices/:id/approve-all-flags). */
+  async approveAllFlags(invoiceId: string, actor: Actor): Promise<{ success: true; status: string; flags: AnomalyFlag[] }> {
+    const invoice = await this.ctx.repositories.invoices.getById(invoiceId);
+    if (!invoice || invoice.deletedAt) throw new InvoiceServiceError('NOT_FOUND', 'Накладная не найдена');
+
+    const now = this.ctx.clock.now();
+    const invoiceFlags = (await this.ctx.repositories.anomalyFlags.getAll()).filter((f) => f.invoiceId === invoiceId);
+    const ops: BatchOp[] = invoiceFlags.map((f) => ({
+      type: 'set' as const,
+      collection: 'anomalyFlags',
+      id: f.id,
+      data: asDoc({ ...f, isResolved: true, resolvedBy: actor.username, resolvedAt: now }),
+    }));
+    ops.push({ type: 'set', collection: 'invoices', id: invoiceId, data: asDoc({ ...invoice, status: 'confirmed', updatedAt: now }) });
+    await this.ctx.gateway.commitBatch(ops);
+    await this.anomaly.recalculateAll();
+
+    const status = (await this.ctx.repositories.invoices.getById(invoiceId))?.status ?? 'confirmed';
+    const flags = (await this.ctx.repositories.anomalyFlags.getAll()).filter((f) => f.invoiceId === invoiceId);
+    await this.audit.log({
+      userId: actor.id,
+      username: actor.username,
+      action: 'invoice_approve_all_flags',
+      entityType: 'invoice',
+      entityId: invoiceId,
+      oldValues: {},
+      newValues: { status, approvedFlagsCount: invoiceFlags.length },
+    });
+    return { success: true, status, flags };
   }
 }

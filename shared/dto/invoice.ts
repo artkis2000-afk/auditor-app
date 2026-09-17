@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { truckPlacementSchema } from '../enums/index.js';
+import { truckPlacementSchema, type TruckPlacement } from '../enums/index.js';
+import type { Invoice, InvoiceItem, AnomalyFlag } from '../schemas/index.js';
 
 // Позиция во входных данных накладной (до сплита по количеству)
 export const invoiceItemInputSchema = z.object({
@@ -54,3 +55,37 @@ export const approveFlagRequestSchema = z.object({
   flagType: z.string().optional(),
 });
 export type ApproveFlagRequest = z.infer<typeof approveFlagRequestSchema>;
+
+// --- Response DTO (business data; HTTP-форматирование — на слое routes) ---
+
+export interface NomenclatureSuggestion {
+  nomenclatureId: string;
+  name: string;
+  score: number;
+}
+
+export interface InvoiceListItemRef {
+  id: string;
+  rawName: string;
+  matchedNomenclatureId: string | null;
+  vehicleId?: string | null;
+  truckPlacement?: TruckPlacement | null;
+}
+
+/** Элемент списка накладных (без imagePath; supplierName/uploaderName/flagsCount вычислены). */
+export type InvoiceListEntry = Omit<Invoice, 'imagePath' | 'supplierName'> & {
+  supplierName: string;
+  uploaderName: string;
+  flagsCount: number;
+  items: InvoiceListItemRef[];
+};
+
+export type InvoiceDetailItem = InvoiceItem & { suggestions: NomenclatureSuggestion[] };
+
+export interface InvoiceDetail {
+  invoice: Invoice;
+  items: InvoiceDetailItem[];
+  flags: AnomalyFlag[];
+  supplierName: string;
+  uploaderName: string;
+}

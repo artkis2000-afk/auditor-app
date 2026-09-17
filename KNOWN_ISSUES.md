@@ -138,4 +138,22 @@
 
 ---
 
+## KI-15 — legacy mutation-эндпоинты без roleCheck (в v2 не переносить дыру)
+- **Статус:** OPEN
+- **Где (исходник):** `фуры/server.ts` — POST/DELETE /api/vehicles*, /trailer*, /swap-trailers,
+  POST /api/vehicle-exclusions, PUT /api/invoice-items/:id/placement, POST /api/warehouse/add|allocate.
+- **Суть:** Эти изменяющие эндпоинты защищены только authMiddleware, без roleCheck → любой
+  авторизованный пользователь (включая viewer) может менять машины/прицепы/склад/размещение/исключения.
+- **Решение в v2:** на transport-слое (PHASE 4.7b) НЕ копировать эту дыру — назначить корректные роли.
+  Сервисы уже написаны нейтрально (авторизация — на routes).
+
+## KI-16 — db-status/server-logs доступны без auth (в v2 не копировать)
+- **Статус:** OPEN
+- **Где (исходник):** GET /api/db-status, GET /api/server-logs — без authMiddleware.
+- **Суть:** Отдают диагностику БД и серверные логи неавторизованным.
+- **Решение в v2:** legacy db-status/server-logs 1:1 НЕ переносить. Будущий health/status-эндпоинт —
+  безопасный, с минимальной диагностикой; server-logs как публичный эндпоинт не создаётся.
+
+---
+
 <!-- Новые записи добавляются по мере переноса domain-логики (PHASE 4.2+). -->

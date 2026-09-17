@@ -11,3 +11,6 @@ export * from './nomenclatureService.js';
 export * from './warehouseService.js';
 export * from './vehicleService.js';
 export * from './settingsService.js';
+export * from './invoiceItemService.js';
+export * from './dashboardService.js';
+export * from './exportService.js';
