@@ -118,4 +118,24 @@
 
 ---
 
+## KI-13 — legacy JWT_SECRET имел захардкоженный fallback (ИЗМЕНЕНО осознанно)
+- **Статус:** RESOLVED (осознанное отличие от legacy, согласовано)
+- **Где (исходник):** `фуры/server.ts` → `const JWT_SECRET = process.env.JWT_SECRET || 'purchase-auditor-secret-key-12345'`.
+- **Суть:** При отсутствии env-переменной использовался предсказуемый секрет в коде — риск подделки токенов.
+- **Решение в v2:** `TokenService` получает секрет только через DI; `loadAuthConfig` требует `JWT_SECRET`
+  из окружения и бросает `AuthError('CONFIG')` при отсутствии. Дефолтный секрет не используется.
+  Формат токена сохранён 1:1 (HMAC-SHA256, header/payload/signature, exp в мс, без JWT-библиотеки).
+- Реальный секрет в код/git/тесты не добавляется.
+
+## KI-14 — sha256 без соли + смешение role/username в авторизации
+- **Статус:** OPEN
+- **Где (исходник):** `hashPassword` (sha256 без соли); role-checks + username-привилегии (`boss`/`admin`).
+- **Суть:** Пароли хешируются sha256 без соли (слабо); привилегии частично привязаны к username
+  (`canApproveAnomaly` = role admin && username != 'admin'; `canEditNormatives` = username=='boss'),
+  роль `manager` в enum есть, но пользователям не присвоена. Многие эндпоинты без role-check (KI будущего route-слоя).
+- **Перенос:** как есть — `Sha256Hasher` (шов `PasswordHasher` для argon2/bcrypt), предикаты в
+  `AuthorizationService` 1:1. Предлагается (отдельной фазой): соль/argon2, унификация ролей.
+
+---
+
 <!-- Новые записи добавляются по мере переноса domain-логики (PHASE 4.2+). -->
