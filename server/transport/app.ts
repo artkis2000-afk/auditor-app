@@ -10,6 +10,7 @@ import { createNomenclatureRouter } from './routes/nomenclatureRoutes.js';
 import { createVehicleRouter, createVehicleExclusionsRouter } from './routes/vehicleRoutes.js';
 import { createWarehouseRouter } from './routes/warehouseRoutes.js';
 import { createInvoiceItemRouter } from './routes/invoiceItemRoutes.js';
+import { createDashboardRouter } from './routes/dashboardRoutes.js';
 
 /**
  * Фабрика Express-приложения (DI). Цепочка: request → validation → auth → authorization → service → response.
@@ -28,6 +29,7 @@ export function createApp(deps: AppDeps): Express {
   app.use('/api/vehicle-exclusions', createVehicleExclusionsRouter(deps));
   app.use('/api/warehouse', createWarehouseRouter(deps));
   app.use('/api/invoice-items', createInvoiceItemRouter(deps));
+  app.use('/api/dashboard', createDashboardRouter(deps));
 
   // Центральный обработчик ошибок — последним
   app.use(errorHandler());

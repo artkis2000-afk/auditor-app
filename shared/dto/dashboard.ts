@@ -1,14 +1,16 @@
+import { z } from 'zod';
 import type { AnomalyFlagType, AnomalySeverity } from '../enums/index.js';
 
-/** Параметры периода для дашборда (перенос query из GET /api/dashboard/stats). */
-export interface DashboardPeriodQuery {
-  periodType?: string; // 'all' | 'year' | 'quarter' | 'month' | 'custom'
-  selectedYear?: number;
-  selectedQuarter?: number;
-  selectedMonth?: number;
-  startDate?: string;
-  endDate?: string;
-}
+/** Параметры периода для дашборда (query из GET /api/dashboard/stats). Числа — coerce из строк query. */
+export const dashboardPeriodQuerySchema = z.object({
+  periodType: z.enum(['all', 'year', 'quarter', 'month', 'custom']).optional(),
+  selectedYear: z.coerce.number().int().optional(),
+  selectedQuarter: z.coerce.number().int().optional(),
+  selectedMonth: z.coerce.number().int().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+});
+export type DashboardPeriodQuery = z.infer<typeof dashboardPeriodQuerySchema>;
 
 export interface DashboardChartPoint {
   month: string;

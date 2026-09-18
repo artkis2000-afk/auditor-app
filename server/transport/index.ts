@@ -11,4 +11,5 @@ export { createNomenclatureRouter } from './routes/nomenclatureRoutes.js';
 export { createVehicleRouter, createVehicleExclusionsRouter } from './routes/vehicleRoutes.js';
 export { createWarehouseRouter } from './routes/warehouseRoutes.js';
 export { createInvoiceItemRouter } from './routes/invoiceItemRoutes.js';
+export { createDashboardRouter } from './routes/dashboardRoutes.js';
 export * from './routeHelpers.js';
