@@ -6,3 +6,6 @@ export * from './authMiddleware.js';
 export { createHealthRouter } from './routes/healthRoutes.js';
 export { createAuthRouter } from './routes/authRoutes.js';
 export { createInvoiceRouter } from './routes/invoiceRoutes.js';
+export { createSupplierRouter } from './routes/supplierRoutes.js';
+export { createNomenclatureRouter } from './routes/nomenclatureRoutes.js';
+export * from './routeHelpers.js';

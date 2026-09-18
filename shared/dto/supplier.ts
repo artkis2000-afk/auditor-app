@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/** Query для эндпоинтов подбора (?q=...). Общий для suppliers/nomenclature match. */
+export const matchQuerySchema = z.object({
+  q: z.string().optional(),
+});
+export type MatchQuery = z.infer<typeof matchQuerySchema>;
+
 export const supplierCreateRequestSchema = z.object({
   name: z.string().min(1),
   legalAddress: z.string().optional(),
