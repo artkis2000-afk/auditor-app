@@ -13,6 +13,8 @@ interface FakeFile {
   exists: boolean;
 }
 
+const noop = async (): Promise<undefined> => undefined;
+
 function fakeBucket(initial: Record<string, FakeFile> = {}): {
   bucket: BucketLike;
   files: Record<string, FakeFile>;
@@ -33,6 +35,10 @@ function fakeBucket(initial: Record<string, FakeFile> = {}): {
         },
         async getMetadata(): Promise<[{ contentType?: string }]> {
           return [{ contentType: files[key]?.contentType }];
+        },
+        async delete() {
+          delete files[key];
+          return noop();
         },
       };
     },
@@ -79,6 +85,13 @@ describe('FirebaseStorageGateway (fake bucket)', () => {
     const got = await gw.get('k3');
     expect(got.data.toString()).toBe('roundtrip');
     expect(got.contentType).toBe('image/webp');
+  });
+
+  it('delete удаляет объект; повторный get → ImageStoreError', async () => {
+    const { bucket } = fakeBucket({ k4: { data: Buffer.from('x'), contentType: 'image/png', exists: true } });
+    const gw = new FirebaseStorageGateway(bucket);
+    await gw.delete('k4');
+    await expect(gw.get('k4')).rejects.toBeInstanceOf(ImageStoreError);
   });
 });
 

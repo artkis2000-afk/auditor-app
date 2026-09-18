@@ -12,6 +12,7 @@ import {
   OcrError,
   type ParsedInvoice,
 } from '../../ai/index.js';
+import { InMemoryImageStore } from '../../storage/__tests__/inMemoryImageStore.js';
 import { fixedClock, countingIds, TS } from './_helpers.js';
 
 const actor: Actor = { id: 'u-admin', username: 'admin' };
@@ -194,5 +195,57 @@ describe('OcrService.processInvoice — аномалии и ошибки', () =>
       invoices: [invoiceDoc({ id: 'inv-x', recognizedDate: '2026-01-01', status: 'processing', imagePath: '' })],
     });
     await expect(ocr(ctx, new StubOcrProvider({ recognizedDate: '', supplierName: '', totalSum: 0, detectedVehicle: '', items: [] })).processInvoice('inv-x', actor)).rejects.toBeInstanceOf(OcrError);
+  });
+
+  it('placeholder imagePath → OcrError (не считается изображением)', async () => {
+    const { ctx } = setup({
+      invoices: [invoiceDoc({ id: 'inv-x', recognizedDate: '2026-01-01', status: 'processing', imagePath: '/assets/invoice_placeholder.png' })],
+    });
+    await expect(ocr(ctx, new StubOcrProvider({ recognizedDate: '', supplierName: '', totalSum: 0, detectedVehicle: '', items: [] })).processInvoice('inv-x', actor)).rejects.toBeInstanceOf(OcrError);
+  });
+});
+
+describe('OcrService.processInvoice — storage key (новый формат)', () => {
+  const KEY = 'invoices/inv-x/original.jpg';
+  const parsed: ParsedInvoice = {
+    recognizedDate: '2026-02-01',
+    supplierName: 'ООО OCR',
+    totalSum: 1200,
+    detectedVehicle: 'V569',
+    items: [{ rawName: 'Фильтр масляный', quantity: 1, unitPrice: 1200, lineSum: 1200 }],
+  };
+
+  it('imagePath=storage key → ImageStore.get; успех СОХРАНЯЕТ storage key', async () => {
+    const { ctx } = setup({
+      invoices: [invoiceDoc({ id: 'inv-x', recognizedDate: '2026-01-01', status: 'processing', imagePath: KEY })],
+    });
+    const store = new InMemoryImageStore();
+    await store.put(KEY, Buffer.from('IMG-BYTES'), 'image/jpeg');
+    const svc = new OcrService(ctx, { primary: new StubOcrProvider(parsed), preprocessor: new PassthroughImagePreprocessor(), imageStore: store });
+
+    const res = await svc.processInvoice('inv-x', actor);
+    expect(res.itemsCount).toBe(1);
+    const inv = await ctx.repositories.invoices.getById('inv-x');
+    expect(inv!.imagePath).toBe(KEY); // storage key сохранён (не очищен)
+    expect(inv!.ocrFallback).toBe(false);
+    expect((await ctx.repositories.invoiceItems.listByInvoice('inv-x'))).toHaveLength(1);
+    expect((await ctx.repositories.auditLogs.getAll()).some((l) => l.action === 'invoice_ocr')).toBe(true);
+  });
+
+  it('production-политика: primary падает, fallback НЕТ → draft + ocrError, без ложного confirmed, throw OcrError', async () => {
+    const { ctx } = setup({
+      invoices: [invoiceDoc({ id: 'inv-x', recognizedDate: '2026-01-01', status: 'processing', imagePath: KEY })],
+    });
+    const store = new InMemoryImageStore();
+    await store.put(KEY, Buffer.from('IMG-BYTES'), 'image/jpeg');
+    const svc = new OcrService(ctx, { primary: new ThrowingOcrProvider('gemini 500'), preprocessor: new PassthroughImagePreprocessor(), imageStore: store });
+
+    await expect(svc.processInvoice('inv-x', actor)).rejects.toBeInstanceOf(OcrError);
+    const inv = await ctx.repositories.invoices.getById('inv-x');
+    expect(inv!.status).toBe('draft');
+    expect(inv!.ocrError).toBe('gemini 500');
+    expect(inv!.ocrFallback).toBe(false);
+    expect(inv!.imagePath).toBe(KEY); // оригинал сохранён для повтора
+    expect((await ctx.repositories.invoiceItems.listByInvoice('inv-x'))).toHaveLength(0); // без фейковых позиций
   });
 });

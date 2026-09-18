@@ -2,12 +2,13 @@ import { Router, type Request } from 'express';
 import {
   manualInvoiceRequestSchema,
   invoiceUpdateRequestSchema,
+  invoiceUploadRequestSchema,
   invoiceIdsRequestSchema,
   approveFlagRequestSchema,
   invoicesListQuerySchema,
   type InvoicesListQuery,
 } from '../../../shared/index.js';
-import { InvoiceService, ServiceError } from '../../services/index.js';
+import { InvoiceService, OcrService, ServiceError } from '../../services/index.js';
 import type { AppDeps } from '../deps.js';
 import { validateBody, validateQuery } from '../validation.js';
 import { authenticate, requireRole, requireApproveAnomaly } from '../authMiddleware.js';
@@ -32,8 +33,8 @@ function extractPin(req: Request): string | undefined {
 
 /**
  * Invoices routes (PHASE 4.7b.2). Бизнес-логика/пересчёт/аудит/PIN — в InvoiceService.
- * Роли: manual → admin|manager (legacy), остальные мутации → admin, approve → boss (requireApproveAnomaly).
- * OCR/upload не реализуются (PHASE 4.6).
+ * Роли: manual/upload → admin|manager (legacy), остальные мутации → admin, approve → boss (requireApproveAnomaly).
+ * upload → InvoiceService.createFromUpload (ImageStore); ocr → OcrService.processInvoice (синхронно, PHASE 4.6b).
  */
 export function createInvoiceRouter(deps: AppDeps): Router {
   const router = Router();
@@ -65,6 +66,28 @@ export function createInvoiceRouter(deps: AppDeps): Router {
       res.status(200).json({ success: true, ...result });
     },
   );
+
+  // Загрузка изображения накладной (создаёт processing-накладную; OCR НЕ запускается автоматически).
+  router.post(
+    '/upload',
+    auth,
+    requireRole(deps.authorizationService, ['admin', 'manager']),
+    validateBody(invoiceUploadRequestSchema),
+    async (req, res) => {
+      const imageStore = deps.imageStore;
+      if (!imageStore) throw new Error('ImageStore не сконфигурирован'); // → 500 (config); в проде всегда собран
+      const result = await service.createFromUpload(req.body, actorOf(req), imageStore);
+      res.status(200).json({ success: true, ...result });
+    },
+  );
+
+  // Запуск OCR по загруженной накладной. Синхронно (MVP): без IIFE/queue/worker/waitUntil.
+  router.post('/:id/ocr', auth, admin, async (req, res) => {
+    const ocrDeps = deps.ocr;
+    if (!ocrDeps) throw new Error('OCR-зависимости не сконфигурированы'); // → 500 (config)
+    const result = await new OcrService(deps.ctx, ocrDeps).processInvoice(idParam(req), actorOf(req));
+    res.status(200).json(result);
+  });
 
   router.put('/:id', auth, admin, validateBody(invoiceUpdateRequestSchema), async (req, res) => {
     const result = await service.edit(idParam(req), req.body, actorOf(req));

@@ -2,6 +2,7 @@ import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { AuthError } from '../auth/index.js';
 import { ServiceError, InvoiceServiceError } from '../services/index.js';
+import { OcrError } from '../ai/index.js';
 
 export interface MappedError {
   status: number;
@@ -20,6 +21,21 @@ function mapServiceCode(code: string): number {
     case 'PIN_REQUIRED':
     case 'UNSUPPORTED':
       return 400;
+    case 'PAYLOAD_TOO_LARGE':
+      return 413;
+    default:
+      return 500;
+  }
+}
+
+/** OCR-ошибки: image/not-found — клиентские (4xx), сбой провайдера — 502, прочее — 500. */
+function mapOcrCode(code: string | undefined): number {
+  switch (code) {
+    case 'NOT_FOUND':
+    case 'IMAGE_MISSING':
+      return 404;
+    case 'PROVIDER':
+      return 502;
     default:
       return 500;
   }
@@ -50,7 +66,10 @@ export function mapError(err: unknown): MappedError {
   if (err instanceof ServiceError || err instanceof InvoiceServiceError) {
     return { status: mapServiceCode(err.code), message: err.message };
   }
-  // Неизвестная ошибка — не раскрываем детали/стек
+  if (err instanceof OcrError) {
+    return { status: mapOcrCode(err.code), message: err.message };
+  }
+  // Неизвестная ошибка (в т.ч. сбой хранилища) — не раскрываем детали/стек
   return { status: 500, message: 'Внутренняя ошибка сервера' };
 }
 

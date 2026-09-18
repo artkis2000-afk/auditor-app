@@ -2,12 +2,14 @@ import type { AnomalyFlag, Invoice, InvoiceItem } from '../../shared/index.js';
 import type {
   ManualInvoiceRequest,
   InvoiceUpdateRequest,
+  InvoiceUploadRequest,
   ApproveFlagRequest,
   InvoiceListEntry,
   InvoiceDetail,
 } from '../../shared/index.js';
 import { findBestNomenclatureMatches } from '../../domain/matching/index.js';
 import type { BatchOp } from '../db/firestoreGateway.js';
+import { type ImageStore, buildInvoiceImageKey } from '../storage/index.js';
 import type { ServiceContext } from './context.js';
 import { AnomalyService } from './anomalyService.js';
 import { AuditService } from './auditService.js';
@@ -20,7 +22,38 @@ export interface Actor {
   role?: string;
 }
 
-export type InvoiceErrorCode = 'NOT_FOUND' | 'PIN_REQUIRED';
+export type InvoiceErrorCode = 'NOT_FOUND' | 'PIN_REQUIRED' | 'PAYLOAD_TOO_LARGE';
+
+/**
+ * Максимальный размер декодированного изображения. Держим ниже лимита тела Vercel-функции
+ * (4.5 MB на весь запрос; base64 ≈ +33%), чтобы клиент получил понятный 413, а не generic-фейл.
+ */
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+
+/** Разбирает upload-вход: определяет MIME и байты; поддерживает data-URL и «сырой» base64. */
+function decodeUpload(input: InvoiceUploadRequest): { bytes: Buffer; contentType: string } {
+  const raw = input.base64;
+  let b64 = raw;
+  let mime = input.type;
+  if (raw.startsWith('data:')) {
+    const comma = raw.indexOf(',');
+    const header = comma >= 0 ? raw.slice(5, comma) : '';
+    const headerMime = header.split(';')[0];
+    if (!mime && headerMime) mime = headerMime;
+    b64 = comma >= 0 ? raw.slice(comma + 1) : '';
+  }
+  const normalized = mime?.toLowerCase().split(';')[0]?.trim();
+  const contentType = normalized && ALLOWED_IMAGE_MIME.has(normalized) ? normalized : 'image/jpeg';
+  const bytes = Buffer.from(b64, 'base64');
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    throw new InvoiceServiceError(
+      'PAYLOAD_TOO_LARGE',
+      `Изображение слишком большое (> ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ). Сожмите файл и загрузите снова.`,
+    );
+  }
+  return { bytes, contentType };
+}
 
 export class InvoiceServiceError extends Error {
   constructor(
@@ -97,6 +130,56 @@ export class InvoiceService {
     });
 
     return { invoiceId, status: finalStatus };
+  }
+
+  /**
+   * Загрузка накладной изображением: оригинал → ImageStore, накладная в статусе 'processing'
+   * с imagePath = storage key (без base64 в Firestore). OCR НЕ запускается здесь.
+   * Compensation: если put успешен, а запись в Firestore упала — пытаемся удалить объект
+   * (сбой удаления не маскирует исходную ошибку). Возврат — legacy-совместимый.
+   */
+  async createFromUpload(
+    input: InvoiceUploadRequest,
+    actor: Actor,
+    imageStore: ImageStore,
+  ): Promise<{ invoiceId: string; status: string }> {
+    const now = this.ctx.clock.now();
+    const invoiceId = this.ctx.ids.generate('inv');
+    const { bytes, contentType } = decodeUpload(input);
+    const storageKey = buildInvoiceImageKey(invoiceId, contentType);
+
+    await imageStore.put(storageKey, bytes, contentType);
+
+    const invoice: Invoice = {
+      id: invoiceId,
+      imagePath: storageKey, // ссылка на объект хранилища, НЕ base64
+      recognizedDate: now.split('T')[0]!,
+      status: 'processing',
+      uploadedBy: actor.id,
+      supplierId: null,
+      supplierName: null,
+      rawSupplierName: null,
+      totalSum: 0,
+      filename: input.name ?? null,
+      comment: null,
+      isReconciled: false,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    try {
+      await this.ctx.gateway.set('invoices', invoiceId, asDoc(invoice));
+    } catch (err) {
+      try {
+        await imageStore.delete(storageKey); // compensation
+      } catch {
+        // сбой удаления не маскируем — пробрасываем исходную ошибку записи
+      }
+      throw err;
+    }
+
+    return { invoiceId, status: 'processing' };
   }
 
   /** Редактирование накладной. */

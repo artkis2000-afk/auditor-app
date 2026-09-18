@@ -2,8 +2,8 @@
  * Абстракция объектного хранилища изображений накладных (infra-слой).
  * НЕ знает про Firestore, Gemini, HTTP или бизнес-логику.
  *
- * Интерфейс намеренно минимален под MVP (upload сохраняет, OCR читает):
- * только put/get. delete/exists отложены (lifecycle/retention — Could-wait, см. KI-20).
+ * Интерфейс минимален под MVP: put/get + delete (нужен для compensation при сбое
+ * Firestore-записи после успешного put). exists/lifecycle/TTL/retention отложены (KI-20).
  */
 export interface StoredImage {
   data: Buffer;
@@ -16,6 +16,8 @@ export interface ImageStore {
   put(key: string, data: Buffer, contentType: string): Promise<void>;
   /** Прочитать объект. Если объекта нет — бросает ImageStoreError. */
   get(key: string): Promise<StoredImage>;
+  /** Удалить объект (для compensation). Идемпотентно: отсутствие объекта — не ошибка. */
+  delete(key: string): Promise<void>;
 }
 
 /** Граница ошибок хранилища. Не содержит секретов/креденшелов. */

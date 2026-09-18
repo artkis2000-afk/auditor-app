@@ -14,6 +14,10 @@ export class InMemoryImageStore implements ImageStore {
     return v;
   }
 
+  async delete(key: string): Promise<void> {
+    this.map.delete(key);
+  }
+
   /** Тестовый помощник: количество объектов. */
   size(): number {
     return this.map.size;

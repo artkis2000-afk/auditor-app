@@ -165,4 +165,30 @@
 
 ---
 
+## KI-18 — повторный OCR после очистки inline imagePath (legacy) невозможен
+- **Статус:** RESOLVED для нового формата (storage key), OPEN для legacy inline.
+- **Где:** legacy `runOcrAndConfirm` очищал `imagePath=''` после распознавания → повторный `/ocr`
+  бросал «изображение отсутствует».
+- **Решение в v2:** при `imagePath` = storage key оригинал сохраняется в Firebase Storage и НЕ
+  очищается — повторный OCR возможен. Для legacy inline (`data:`) поведение прежнее (очищается),
+  новые base64 в Firestore не создаются.
+
+---
+
+## KI-19 — нет защиты от параллельного OCR одной накладной
+- **Статус:** OPEN (осознанно отложено, PHASE 4.6b НЕ исправляет).
+- **Суть:** Два одновременных `POST /:id/ocr` могут продублировать позиции/пересчёт (нет lock/CAS).
+- **Решение (позже):** `ocrLockAt`/условная запись/транзакция — вне текущего объёма; documented risk.
+
+---
+
+## KI-22 — политика production-fallback: запрет молчаливого fake OCR
+- **Статус:** RESOLVED (введено правило).
+- **Суть:** legacy при недоступности Gemini молча фабриковал «распознанную» накладную из mock/random.
+- **Решение в v2:** `fallback`-провайдер в `OcrServiceDeps` опционален; composition root
+  (`buildOcrDeps`) в production БЕЗ `GEMINI_API_KEY` не стартует, а при сбое Gemini накладная уходит
+  в `draft` + `ocrError` (без ложного `confirmed`). Демо-fallback — только non-production/tests.
+
+---
+
 <!-- Новые записи добавляются по мере переноса domain-логики (PHASE 4.2+). -->

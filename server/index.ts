@@ -1,20 +1,27 @@
 import type { Express } from 'express';
 import type { Server } from 'node:http';
 import { getFirestoreGateway } from './db/index.js';
+import { loadFirebaseEnv } from './db/env.js';
 import { loadAuthConfig } from './auth/index.js';
+import { createFirebaseStorageGateway } from './storage/index.js';
+import { buildOcrDeps } from './ocrComposition.js';
 import { composeApp } from './composeApp.js';
 
 /**
  * Composition root процесса: env/config → Admin Firestore Gateway → ServiceContext →
- * services → auth services → createApp → app.listen. Бизнес-логики здесь нет — только связывание.
+ * services → auth → OCR/storage → createApp → app.listen. Бизнес-логики здесь нет — только связывание.
  *
- * Ошибки конфигурации (нет JWT_SECRET / нет Firebase-кредов) понятны разработчику в логах
- * и НЕ уходят HTTP-клиенту: процесс просто не стартует (exit 1) до открытия порта.
+ * Ошибки конфигурации (нет JWT_SECRET / Firebase-кредов / storage-бакета / Gemini-ключа в prod)
+ * понятны разработчику в логах и НЕ уходят HTTP-клиенту: процесс не стартует (exit 1) до открытия порта.
  */
 function buildApp(): Express {
   const { jwtSecret } = loadAuthConfig(); // JWT_SECRET только из env, без дефолта (KI-13)
-  const gateway = getFirestoreGateway(); // Admin SDK из FIREBASE_* env (единственный клиент)
-  return composeApp(gateway, jwtSecret);
+  const firebaseEnv = loadFirebaseEnv(); // FIREBASE_* env (единый источник конфигурации)
+  const gateway = getFirestoreGateway(); // Admin SDK (единственный клиент)
+  const imageStore = createFirebaseStorageGateway(firebaseEnv); // Firebase Storage (тот же Admin app)
+  const isProd = (process.env.NODE_ENV ?? '').toLowerCase() === 'production';
+  const ocr = buildOcrDeps(imageStore, isProd);
+  return composeApp(gateway, jwtSecret, { ocr, imageStore });
 }
 
 function start(): void {

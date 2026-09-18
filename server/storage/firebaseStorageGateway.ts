@@ -12,6 +12,7 @@ export interface FileLike {
   exists(): Promise<[boolean]>;
   download(): Promise<[Buffer]>;
   getMetadata(): Promise<[{ contentType?: string }]>;
+  delete(options?: { ignoreNotFound?: boolean }): Promise<unknown>;
 }
 export interface BucketLike {
   file(key: string): FileLike;
@@ -49,6 +50,14 @@ export class FirebaseStorageGateway implements ImageStore {
       return { data, contentType: meta.contentType ?? 'application/octet-stream' };
     } catch (err) {
       throw new ImageStoreError(`Не удалось прочитать объект хранилища: ${key}`, err);
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    try {
+      await this.bucket.file(key).delete({ ignoreNotFound: true });
+    } catch (err) {
+      throw new ImageStoreError(`Не удалось удалить объект хранилища: ${key}`, err);
     }
   }
 }

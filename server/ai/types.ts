@@ -50,8 +50,14 @@ export interface ImagePreprocessor {
   preprocess(base64: string, mimeType: string): Promise<PreprocessResult>;
 }
 
+/** Категория OCR-ошибки для маппинга в HTTP-статус на слое transport. */
+export type OcrErrorCode = 'NOT_FOUND' | 'IMAGE_MISSING' | 'PROVIDER' | 'STORAGE';
+
 export class OcrError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code?: OcrErrorCode,
+  ) {
     super(message);
     this.name = 'OcrError';
   }
