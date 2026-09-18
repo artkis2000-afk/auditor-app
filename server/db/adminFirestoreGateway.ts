@@ -1,6 +1,7 @@
-import { initializeApp, cert, applicationDefault, getApps, type App, type ServiceAccount } from 'firebase-admin/app';
+import type { App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { FirebaseEnv } from './env.js';
+import { getAdminApp } from './adminApp.js';
 import { FirestoreError, type BatchOp, type FirestoreGateway, type RawDoc } from './firestoreGateway.js';
 
 /** Таймаут на операцию Firestore, чтобы «висящий» запрос не блокировал API. */
@@ -46,19 +47,7 @@ export class AdminFirestoreGateway implements FirestoreGateway {
   constructor(env: FirebaseEnv) {
     let app: App;
     try {
-      const appName = `fury-${env.projectId}`;
-      const existing = getApps().find((a) => a.name === appName);
-      app =
-        existing ??
-        initializeApp(
-          {
-            credential: env.serviceAccount
-              ? cert(env.serviceAccount as ServiceAccount)
-              : applicationDefault(),
-            projectId: env.projectId,
-          },
-          appName,
-        );
+      app = getAdminApp(env);
     } catch (err) {
       throw new FirestoreError('Не удалось инициализировать Firebase Admin SDK', err);
     }

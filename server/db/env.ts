@@ -16,6 +16,8 @@ export interface FirebaseEnv {
   serviceAccount?: Record<string, unknown>;
   /** Путь к файлу креденшелов (ADC), если сервисный аккаунт строкой не задан. */
   credentialsPath?: string;
+  /** Имя бакета Firebase Storage (FIREBASE_STORAGE_BUCKET). Опционально: нужно только для ImageStore. */
+  storageBucket?: string;
 }
 
 const serviceAccountSchema = z
@@ -64,10 +66,13 @@ export function loadFirebaseEnv(env: NodeJS.ProcessEnv = process.env): FirebaseE
     serviceAccount = result.data;
   }
 
+  const storageBucket = env.FIREBASE_STORAGE_BUCKET?.trim() || undefined;
+
   return {
     projectId,
     databaseId,
     serviceAccount,
     credentialsPath: serviceAccount ? undefined : credentialsPath,
+    storageBucket,
   };
 }
