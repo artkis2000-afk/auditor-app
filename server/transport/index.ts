@@ -12,4 +12,6 @@ export { createVehicleRouter, createVehicleExclusionsRouter } from './routes/veh
 export { createWarehouseRouter } from './routes/warehouseRoutes.js';
 export { createInvoiceItemRouter } from './routes/invoiceItemRoutes.js';
 export { createDashboardRouter } from './routes/dashboardRoutes.js';
+export { createSettingsRouter } from './routes/settingsRoutes.js';
+export { createAuditRouter } from './routes/auditRoutes.js';
 export * from './routeHelpers.js';
