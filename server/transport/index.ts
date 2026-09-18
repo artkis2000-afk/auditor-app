@@ -8,4 +8,7 @@ export { createAuthRouter } from './routes/authRoutes.js';
 export { createInvoiceRouter } from './routes/invoiceRoutes.js';
 export { createSupplierRouter } from './routes/supplierRoutes.js';
 export { createNomenclatureRouter } from './routes/nomenclatureRoutes.js';
+export { createVehicleRouter, createVehicleExclusionsRouter } from './routes/vehicleRoutes.js';
+export { createWarehouseRouter } from './routes/warehouseRoutes.js';
+export { createInvoiceItemRouter } from './routes/invoiceItemRoutes.js';
 export * from './routeHelpers.js';
