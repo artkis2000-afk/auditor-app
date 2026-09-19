@@ -18,4 +18,21 @@ export type {
   DashboardSupplierPurchase,
 } from '@shared/dto/dashboard.js';
 
-export type { UserRole, InvoiceStatus } from '@shared/enums/index.js';
+export type {
+  InvoiceListEntry,
+  InvoiceListItemRef,
+  InvoiceDetail,
+  InvoiceDetailItem,
+  NomenclatureSuggestion,
+  InvoicesListQuery,
+} from '@shared/dto/invoice.js';
+
+export type { Invoice, InvoiceItem, AnomalyFlag, Vehicle } from '@shared/schemas/index.js';
+
+export type {
+  UserRole,
+  InvoiceStatus,
+  AnomalyFlagType,
+  AnomalySeverity,
+  TruckPlacement,
+} from '@shared/enums/index.js';

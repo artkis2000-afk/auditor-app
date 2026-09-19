@@ -19,6 +19,7 @@ export function installFetch(handler: FetchHandler): ReturnType<typeof vi.fn> {
       status,
       ok: status >= 200 && status < 300,
       json: async () => body ?? {},
+      blob: async () => new Blob([typeof body === 'string' ? body : JSON.stringify(body ?? {})]),
     } as Response;
   });
   vi.stubGlobal('fetch', mock);

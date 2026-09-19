@@ -66,25 +66,28 @@ describe('POST /api/invoices/upload', () => {
     ).toBe(403);
   });
 
-  it('manager → 200 {success, status: processing}; изображение попадает в ImageStore', async () => {
-    const { app, imageStore, tokens } = build();
+  it('manager → 200 + initial OCR выполнен server-side (позиции созданы, статус не processing)', async () => {
+    const { app, ctx, imageStore, tokens } = build();
     const res = await request(app)
       .post('/api/invoices/upload')
       .set('Authorization', B(tokens.manager))
       .send({ name: 'н.jpg', type: 'image/jpeg', base64: SMALL_B64 });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.status).toBe('processing');
+    expect(res.body.status).not.toBe('processing'); // initial OCR отработал по загрузке
     expect(imageStore.size()).toBe(1);
+    const items = await ctx.repositories.invoiceItems.listByInvoice(res.body.invoiceId);
+    expect(items.length).toBeGreaterThan(0);
   });
 
-  it('admin → 200', async () => {
-    const { app, tokens } = build();
+  it('admin → 200 + initial OCR выполнен', async () => {
+    const { app, ctx, tokens } = build();
     const res = await request(app)
       .post('/api/invoices/upload')
       .set('Authorization', B(tokens.admin))
       .send({ type: 'image/jpeg', base64: SMALL_B64 });
     expect(res.status).toBe(200);
+    expect((await ctx.repositories.invoiceItems.listByInvoice(res.body.invoiceId)).length).toBeGreaterThan(0);
   });
 
   it('невалидное тело (нет base64) → 400', async () => {
@@ -116,6 +119,11 @@ describe('POST /api/invoices/:id/ocr', () => {
     expect((await request(app).post('/api/invoices/nope/ocr').set('Authorization', B(tokens.admin))).status).toBe(404);
   });
 
+  it('manager → 403 на ручной re-OCR (initial OCR идёт через upload, manual — admin-only)', async () => {
+    const { app, tokens } = build();
+    expect((await request(app).post('/api/invoices/inv-ok/ocr').set('Authorization', B(tokens.manager))).status).toBe(403);
+  });
+
   it('admin, накладная без изображения → 404 (контролируемая ошибка, не 500)', async () => {
     const { app, tokens } = build({ invoices: [invoiceSeed({ id: 'inv-noimg', imagePath: '' })] });
     const res = await request(app).post('/api/invoices/inv-noimg/ocr').set('Authorization', B(tokens.admin));
@@ -133,5 +141,28 @@ describe('POST /api/invoices/:id/ocr', () => {
     expect(res.body.itemsCount).toBe(1);
     const inv = await ctx.repositories.invoices.getById('inv-ok');
     expect(inv!.imagePath).toBe('invoices/inv-ok/original.jpg'); // сохранён
+  });
+});
+
+describe('GET /api/invoices/:id/image', () => {
+  it('без токена → 401', async () => {
+    const { app } = build({ invoices: [invoiceSeed({ id: 'inv-img', imagePath: 'invoices/inv-img/original.jpg' })] });
+    expect((await request(app).get('/api/invoices/inv-img/image')).status).toBe(401);
+  });
+
+  it('auth + storage key → 200 с байтами и content-type', async () => {
+    const { app, imageStore, tokens } = build({
+      invoices: [invoiceSeed({ id: 'inv-img', imagePath: 'invoices/inv-img/original.jpg' })],
+    });
+    await imageStore.put('invoices/inv-img/original.jpg', Buffer.from('JPEGBYTES'), 'image/jpeg');
+    const res = await request(app).get('/api/invoices/inv-img/image').set('Authorization', B(tokens.viewer));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('image/jpeg');
+    expect(res.body.toString()).toBe('JPEGBYTES');
+  });
+
+  it('нет изображения (imagePath пуст) → 404', async () => {
+    const { app, tokens } = build({ invoices: [invoiceSeed({ id: 'inv-noimg', imagePath: '' })] });
+    expect((await request(app).get('/api/invoices/inv-noimg/image').set('Authorization', B(tokens.viewer))).status).toBe(404);
   });
 });

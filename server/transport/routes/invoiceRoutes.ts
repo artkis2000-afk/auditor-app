@@ -33,14 +33,16 @@ function extractPin(req: Request): string | undefined {
 
 /**
  * Invoices routes (PHASE 4.7b.2). Бизнес-логика/пересчёт/аудит/PIN — в InvoiceService.
- * Роли: manual/upload → admin|manager (legacy), остальные мутации → admin, approve → boss (requireApproveAnomaly).
- * upload → InvoiceService.createFromUpload (ImageStore); ocr → OcrService.processInvoice (синхронно, PHASE 4.6b).
+ * Роли (legacy-семантика): manual/upload → admin|manager; initial OCR идёт СЕРВЕРНО внутри upload
+ * (для admin|manager); ручной re-OCR POST /:id/ocr → admin-only; confirm/edit/delete → admin;
+ * approve → boss (requireApproveAnomaly). Бизнес-логика/OCR — в InvoiceService/OcrService.
  */
 export function createInvoiceRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new InvoiceService(deps.ctx);
   const auth = authenticate(deps.authService);
   const admin = requireRole(deps.authorizationService, ['admin']);
+  const uploader = requireRole(deps.authorizationService, ['admin', 'manager']);
 
   // --- Read ---
   router.get('/', auth, validateQuery(invoicesListQuerySchema), async (req, res) => {
@@ -55,6 +57,16 @@ export function createInvoiceRouter(deps: AppDeps): Router {
     res.status(200).json({ ...detail, supplier: null, supplierSuggestions: [] });
   });
 
+  // Оригинал изображения накладной (auth). Стрим из ImageStore; base64 в ответе/Firestore нет.
+  router.get('/:id/image', auth, async (req, res) => {
+    const imageStore = deps.imageStore;
+    if (!imageStore) throw new Error('ImageStore не сконфигурирован');
+    const img = await service.getImage(idParam(req), imageStore);
+    res.setHeader('Content-Type', img.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.status(200).send(img.data);
+  });
+
   // --- Mutations ---
   router.post(
     '/manual',
@@ -67,21 +79,36 @@ export function createInvoiceRouter(deps: AppDeps): Router {
     },
   );
 
-  // Загрузка изображения накладной (создаёт processing-накладную; OCR НЕ запускается автоматически).
+  // Загрузка изображения (admin|manager). Initial OCR запускается СЕРВЕРНО сразу после создания —
+  // как в legacy (авто-OCR по загрузке для любого загрузившего). Синхронно, best-effort:
+  // при сбое OCR накладная остаётся (draft+ocrError), upload считается успешным.
   router.post(
     '/upload',
     auth,
-    requireRole(deps.authorizationService, ['admin', 'manager']),
+    uploader,
     validateBody(invoiceUploadRequestSchema),
     async (req, res) => {
       const imageStore = deps.imageStore;
       if (!imageStore) throw new Error('ImageStore не сконфигурирован'); // → 500 (config); в проде всегда собран
-      const result = await service.createFromUpload(req.body, actorOf(req), imageStore);
-      res.status(200).json({ success: true, ...result });
+      const actor = actorOf(req);
+      const created = await service.createFromUpload(req.body, actor, imageStore);
+
+      let status = created.status;
+      if (deps.ocr) {
+        try {
+          const outcome = await new OcrService(deps.ctx, deps.ocr).processInvoice(created.invoiceId, actor);
+          status = outcome.status;
+        } catch {
+          // OCR не удался → накладная уже в draft+ocrError (markOcrFailed); upload успешен.
+          status = (await deps.ctx.repositories.invoices.getById(created.invoiceId))?.status ?? 'draft';
+        }
+      }
+      res.status(200).json({ success: true, invoiceId: created.invoiceId, status });
     },
   );
 
-  // Запуск OCR по загруженной накладной. Синхронно (MVP): без IIFE/queue/worker/waitUntil.
+  // Ручной re-OCR — ТОЛЬКО admin (legacy: manual re-OCR admin-only; initial OCR идёт через upload).
+  // Синхронно (MVP): без IIFE/queue/worker/waitUntil.
   router.post('/:id/ocr', auth, admin, async (req, res) => {
     const ocrDeps = deps.ocr;
     if (!ocrDeps) throw new Error('OCR-зависимости не сконфигурированы'); // → 500 (config)

@@ -1,4 +1,35 @@
-import type { AuthUser, LoginResponse, DashboardStats, DashboardPeriodQuery } from '../types';
+import type {
+  AuthUser,
+  LoginResponse,
+  DashboardStats,
+  DashboardPeriodQuery,
+  InvoiceListEntry,
+  InvoiceDetail,
+  Vehicle,
+  InvoiceStatus,
+} from '../types';
+
+export interface UploadResponse {
+  success: boolean;
+  invoiceId: string;
+  status: string;
+}
+export interface OcrOutcome {
+  status: string;
+  itemsCount: number;
+  fallback: boolean;
+  error?: string;
+}
+export interface ConfirmResponse {
+  success: boolean;
+  status: string;
+  flagsCount: number;
+  flags: unknown[];
+}
+export interface InvoicesListParams {
+  status?: InvoiceStatus;
+  supplierId?: string;
+}
 
 /** Единый ключ токена (совместимо с legacy). */
 const TOKEN_KEY = 'auditor_token';
@@ -96,5 +127,52 @@ export const api = {
   },
   dashboardStats(period: DashboardPeriodQuery = { periodType: 'all' }): Promise<DashboardStats> {
     return request<DashboardStats>(`/dashboard/stats${toQuery(period as Record<string, string | number | undefined>)}`);
+  },
+
+  // --- invoices ---
+  invoicesList(params: InvoicesListParams = {}): Promise<InvoiceListEntry[]> {
+    return request<InvoiceListEntry[]>(`/invoices${toQuery(params as Record<string, string | undefined>)}`);
+  },
+  invoiceDetail(id: string): Promise<InvoiceDetail> {
+    return request<InvoiceDetail>(`/invoices/${encodeURIComponent(id)}`);
+  },
+  invoiceUpload(payload: { name?: string; type: string; base64: string }): Promise<UploadResponse> {
+    return request<UploadResponse>('/invoices/upload', { method: 'POST', body: JSON.stringify(payload) });
+  },
+  invoiceOcr(id: string): Promise<OcrOutcome> {
+    return request<OcrOutcome>(`/invoices/${encodeURIComponent(id)}/ocr`, { method: 'POST' });
+  },
+  invoiceConfirm(id: string): Promise<ConfirmResponse> {
+    return request<ConfirmResponse>(`/invoices/${encodeURIComponent(id)}/confirm`, { method: 'POST' });
+  },
+  invoiceDelete(id: string): Promise<{ success: true }> {
+    return request<{ success: true }>(`/invoices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  invoiceApproveAllFlags(id: string): Promise<{ success: true; status: string; flags: unknown[] }> {
+    return request(`/invoices/${encodeURIComponent(id)}/approve-all-flags`, { method: 'POST' });
+  },
+
+  /** Оригинал изображения как Blob (с Bearer-заголовком; <img src> его отдать не может). */
+  async invoiceImageBlob(id: string): Promise<Blob> {
+    const token = tokenStorage.get();
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}/invoices/${encodeURIComponent(id)}/image`, { headers });
+    } catch {
+      throw new ApiError(0, 'Нет связи с сервером.');
+    }
+    if (res.status === 401) {
+      if (onUnauthorized) onUnauthorized();
+      throw new ApiError(401, 'Сессия истекла. Войдите снова.');
+    }
+    if (!res.ok) throw new ApiError(res.status, await extractError(res, 'Не удалось загрузить изображение.'));
+    return res.blob();
+  },
+
+  // --- vehicles (для отображения имён ТС в позициях) ---
+  vehiclesList(): Promise<Vehicle[]> {
+    return request<Vehicle[]>('/vehicles');
   },
 };

@@ -3,13 +3,9 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import {
-  InvoicesPage,
-  InvoiceDetailPage,
-  SuppliersPage,
-  NomenclaturePage,
-  VehiclesPage,
-} from './pages/placeholders';
+import { InvoicesPage } from './pages/InvoicesPage';
+import { InvoiceDetailPage } from './pages/InvoiceDetailPage';
+import { SuppliersPage, NomenclaturePage, VehiclesPage } from './pages/placeholders';
 
 export function App(): JSX.Element {
   return (

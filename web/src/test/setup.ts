@@ -5,6 +5,12 @@ import { afterEach, vi } from 'vitest';
 if (typeof document !== 'undefined') {
   await import('@testing-library/jest-dom/vitest');
   const { cleanup } = await import('@testing-library/react');
+
+  // jsdom не реализует object URL — заглушки для ImagePreview.
+  if (typeof URL.createObjectURL !== 'function') {
+    URL.createObjectURL = () => 'blob:mock';
+    URL.revokeObjectURL = () => undefined;
+  }
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

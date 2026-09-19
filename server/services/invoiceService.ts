@@ -14,6 +14,7 @@ import type { ServiceContext } from './context.js';
 import { AnomalyService } from './anomalyService.js';
 import { AuditService } from './auditService.js';
 import { RECONCILED_PIN, buildInvoiceItems, ensureSupplier } from './invoiceHelpers.js';
+import { extractImageData } from './ocrHelpers.js';
 
 /** Действующий пользователь (для аудита и правил доступа). Роль-доступ — на слое routes. */
 export interface Actor {
@@ -180,6 +181,24 @@ export class InvoiceService {
     }
 
     return { invoiceId, status: 'processing' };
+  }
+
+  /**
+   * Байты оригинала накладной для отдачи клиенту (GET /:id/image).
+   * Storage key → ImageStore; legacy data-URL → инлайн; пусто/плейсхолдер → NOT_FOUND.
+   */
+  async getImage(id: string, imageStore: ImageStore): Promise<{ data: Buffer; contentType: string }> {
+    const invoice = await this.ctx.repositories.invoices.getById(id);
+    if (!invoice || invoice.deletedAt) throw new InvoiceServiceError('NOT_FOUND', 'Накладная не найдена');
+    const src = invoice.imagePath;
+    if (!src || src === '/assets/invoice_placeholder.png') {
+      throw new InvoiceServiceError('NOT_FOUND', 'Изображение накладной отсутствует');
+    }
+    if (src.startsWith('data:')) {
+      const { base64, mimeType } = extractImageData(src);
+      return { data: Buffer.from(base64, 'base64'), contentType: mimeType };
+    }
+    return imageStore.get(src);
   }
 
   /** Редактирование накладной. */
