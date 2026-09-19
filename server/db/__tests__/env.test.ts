@@ -8,8 +8,43 @@ describe('loadFirebaseEnv', () => {
     expect(() => loadFirebaseEnv({ FIREBASE_SERVICE_ACCOUNT: SA } as NodeJS.ProcessEnv)).toThrow(/FIREBASE_PROJECT_ID/);
   });
 
-  it('бросает ошибку без креденшелов (нет SA и нет пути)', () => {
-    expect(() => loadFirebaseEnv({ FIREBASE_PROJECT_ID: 'p' } as NodeJS.ProcessEnv)).toThrow(/креденшелы/i);
+  it('без креденшелов НЕ бросает (keyless: ADC/WIF); serviceAccount не задан', () => {
+    const env = loadFirebaseEnv({ FIREBASE_PROJECT_ID: 'p' } as NodeJS.ProcessEnv);
+    expect(env.projectId).toBe('p');
+    expect(env.serviceAccount).toBeUndefined();
+    expect(env.wif).toBeUndefined();
+  });
+
+  it('принимает GCP_PROJECT_ID как алиас FIREBASE_PROJECT_ID', () => {
+    const env = loadFirebaseEnv({ GCP_PROJECT_ID: 'gcp-proj' } as NodeJS.ProcessEnv);
+    expect(env.projectId).toBe('gcp-proj');
+  });
+
+  it('полные GCP_* → env.wif заполнен', () => {
+    const env = loadFirebaseEnv({
+      FIREBASE_PROJECT_ID: 'p',
+      GCP_PROJECT_NUMBER: '1234567890',
+      GCP_WORKLOAD_IDENTITY_POOL_ID: 'vercel',
+      GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID: 'vercel',
+      GCP_SERVICE_ACCOUNT_EMAIL: 'auditor-backend@p.iam.gserviceaccount.com',
+    } as NodeJS.ProcessEnv);
+    expect(env.wif).toEqual({
+      projectNumber: '1234567890',
+      poolId: 'vercel',
+      providerId: 'vercel',
+      serviceAccountEmail: 'auditor-backend@p.iam.gserviceaccount.com',
+      audience: undefined,
+    });
+  });
+
+  it('неполные GCP_* → ошибка конфигурации WIF', () => {
+    expect(() =>
+      loadFirebaseEnv({
+        FIREBASE_PROJECT_ID: 'p',
+        GCP_PROJECT_NUMBER: '123',
+        GCP_WORKLOAD_IDENTITY_POOL_ID: 'vercel',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/Workload Identity Federation/i);
   });
 
   it('парсит FIREBASE_SERVICE_ACCOUNT и дефолтит databaseId', () => {
