@@ -1,6 +1,7 @@
 import express, { type Express } from 'express';
 import './types.js'; // расширение Express.Request (principal)
 import type { AppDeps } from './deps.js';
+import { corsMiddleware } from './cors.js';
 import { errorHandler } from './errors.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { createAuthRouter } from './routes/authRoutes.js';
@@ -20,6 +21,8 @@ import { createAuditRouter } from './routes/auditRoutes.js';
  */
 export function createApp(deps: AppDeps): Express {
   const app = express();
+  // CORS (первым) — только если задан allowlist (WEB_ORIGIN); в dev/тестах origin нет → пропуск.
+  if (deps.corsOrigins && deps.corsOrigins.length > 0) app.use(corsMiddleware(deps.corsOrigins));
   app.use(express.json({ limit: '10mb' })); // как в legacy (base64-изображения)
 
   app.use('/api', createHealthRouter());

@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "description": "ФУРЫ ЗАПЧАСТИ — система аудита закупок автозапчастей (standalone: Firestore + Gemini). Reverse-engineered рефакторинг приложения из Google AI Studio.",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
-    "dev": "tsx server/index.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx server/index.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "esbuild server/index.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "build:web": "vite build --config web/vite.config.ts",

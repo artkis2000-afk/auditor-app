@@ -17,4 +17,6 @@ export interface AppDeps {
   tokenService: TokenService;
   ocr?: OcrServiceDeps;
   imageStore?: ImageStore;
+  /** Разрешённые CORS-origin (из WEB_ORIGIN). Пусто → CORS не включается (same-origin/dev). */
+  corsOrigins?: string[];
 }

@@ -5,10 +5,11 @@ import { AuthService, TokenService, AuthorizationService, Sha256Hasher } from '.
 import type { ImageStore } from './storage/index.js';
 import { createApp } from './transport/index.js';
 
-/** Дополнительные (опциональные) зависимости для upload/OCR. Собираются в index.ts / стабятся в тестах. */
+/** Дополнительные (опциональные) зависимости для upload/OCR/CORS. Собираются в buildApp / стабятся в тестах. */
 export interface ComposeOptions {
   ocr?: OcrServiceDeps;
   imageStore?: ImageStore;
+  corsOrigins?: string[];
 }
 
 /**
@@ -32,5 +33,6 @@ export function composeApp(gateway: FirestoreGateway, jwtSecret: string, opts: C
     tokenService,
     ocr: opts.ocr,
     imageStore: opts.imageStore,
+    corsOrigins: opts.corsOrigins,
   });
 }
