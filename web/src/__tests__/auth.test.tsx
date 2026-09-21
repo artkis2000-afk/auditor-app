@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { installFetch, renderApp, setToken, AUTH_USER, SAMPLE_STATS, type RouteResp } from '../test/utils';
+vi.mock('../firebase', () => import('../test/fakeFirebase'));
+import { __setUser, __reset } from '../test/fakeFirebase';
+import { installFetch, renderApp, AUTH_USER, FIREBASE_USER, SAMPLE_STATS, type RouteResp } from '../test/utils';
 
 function route(url: string): RouteResp {
   if (url.includes('/auth/me')) return { status: 200, body: { user: AUTH_USER } };
@@ -8,36 +10,38 @@ function route(url: string): RouteResp {
   return { status: 404, body: { error: 'not found' } };
 }
 
-describe('Auth flow', () => {
-  it('нет токена → защищённый маршрут редиректит на /login', async () => {
+beforeEach(() => __reset());
+
+describe('Auth flow (Firebase)', () => {
+  it('не вошёл → защищённый маршрут редиректит на /login', async () => {
     installFetch(() => ({ status: 200, body: {} }));
     renderApp('/dashboard');
     expect(await screen.findByText(/Вход в систему аудита закупок/)).toBeInTheDocument();
   });
 
-  it('валидный токен → /me проходит, открывается приложение', async () => {
-    setToken();
+  it('вошёл в Firebase + /me 200 → открывается приложение', async () => {
+    __setUser(FIREBASE_USER);
     installFetch(route);
     renderApp('/dashboard');
     expect(await screen.findByText('Всего накладных')).toBeInTheDocument();
     expect(screen.getByText('Главный Аудитор')).toBeInTheDocument();
   });
 
-  it('истёкший/битый токен → 401 на /me → login и токен очищен', async () => {
-    setToken('stale');
-    installFetch((url) => (url.includes('/auth/me') ? { status: 401, body: { error: 'Сессия истекла' } } : { status: 200, body: {} }));
+  it('/me → 401 → выход и редирект на login', async () => {
+    __setUser(FIREBASE_USER);
+    installFetch((url) =>
+      url.includes('/auth/me') ? { status: 401, body: { error: 'Сессия истекла' } } : { status: 200, body: {} },
+    );
     renderApp('/dashboard');
     expect(await screen.findByText(/Вход в систему аудита закупок/)).toBeInTheDocument();
-    expect(localStorage.getItem('auditor_token')).toBeNull();
   });
 
-  it('logout → токен удалён, редирект на login', async () => {
-    setToken();
+  it('logout → редирект на login', async () => {
+    __setUser(FIREBASE_USER);
     installFetch(route);
     renderApp('/dashboard');
     await screen.findByText('Всего накладных');
     fireEvent.click(screen.getByRole('button', { name: 'Выйти' }));
-    expect(await screen.findByText(/Вход в систему аудита закупок/)).toBeInTheDocument();
-    await waitFor(() => expect(localStorage.getItem('auditor_token')).toBeNull());
+    await waitFor(() => expect(screen.getByText(/Вход в систему аудита закупок/)).toBeInTheDocument());
   });
 });

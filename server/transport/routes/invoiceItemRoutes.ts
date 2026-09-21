@@ -14,7 +14,7 @@ import { actorOf, idParam } from '../routeHelpers.js';
 export function createInvoiceItemRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new InvoiceItemService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
   const admin = requireRole(deps.authorizationService, ['admin']);
 
   router.get('/', auth, async (_req, res) => {

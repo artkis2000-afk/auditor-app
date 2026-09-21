@@ -1,30 +1,30 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { ApiError } from '../api/client';
 
+/**
+ * PHASE 5.1: вход через Google (Firebase). Форма username/password удалена.
+ * После успешного входа auth-состояние обновит Firebase listener в AuthContext → редирект.
+ */
 export function LoginPage(): JSX.Element {
-  const { status, login } = useAuth();
-  const navigate = useNavigate();
+  const { status, loginWithGoogle } = useAuth();
   const location = useLocation();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
   if (status === 'authenticated') return <Navigate to={from} replace />;
 
-  async function onSubmit(e: FormEvent): Promise<void> {
-    e.preventDefault();
+  async function onGoogle(): Promise<void> {
     setError(null);
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
-      navigate('/dashboard', { replace: true });
-    } catch (err) {
-      // Показываем только безопасное сообщение (из {error}); без стеков/внутренних деталей.
-      setError(err instanceof ApiError ? err.message : 'Не удалось войти. Попробуйте снова.');
+      await loginWithGoogle();
+      // Навигация произойдёт автоматически: status → authenticated → <Navigate/>.
+      // Профиль подтягивается асинхронно (AuthContext → /me); если бэкенд отклонит —
+      // status вернётся в unauthenticated и останемся на этом экране.
+    } catch {
+      setError('Не удалось войти через Google. Попробуйте снова.');
     } finally {
       setSubmitting(false);
     }
@@ -32,34 +32,9 @@ export function LoginPage(): JSX.Element {
 
   return (
     <div className="app-center">
-      <form className="card login" onSubmit={onSubmit}>
+      <div className="card login">
         <h1 className="login__title">ФУРЫ ЗАПЧАСТИ</h1>
         <p className="login__subtitle">Вход в систему аудита закупок</p>
-
-        <label className="field">
-          <span className="field__label">Имя пользователя</span>
-          <input
-            className="field__input"
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={submitting}
-            autoFocus
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">Пароль</span>
-          <input
-            className="field__input"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={submitting}
-          />
-        </label>
 
         {error ? (
           <p className="login__error" role="alert">
@@ -67,10 +42,15 @@ export function LoginPage(): JSX.Element {
           </p>
         ) : null}
 
-        <button className="btn btn--primary" type="submit" disabled={submitting || !username || !password}>
-          {submitting ? 'Вход…' : 'Войти'}
+        <button
+          className="btn btn--primary"
+          type="button"
+          onClick={onGoogle}
+          disabled={submitting}
+        >
+          {submitting ? 'Вход…' : 'Войти через Google'}
         </button>
-      </form>
+      </div>
     </div>
   );
 }

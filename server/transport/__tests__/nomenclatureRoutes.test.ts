@@ -3,29 +3,19 @@ import request from 'supertest';
 import { createApp } from '../app.js';
 import { InMemoryGateway } from '../../repositories/__tests__/inMemoryGateway.js';
 import { createServiceContext, NomenclatureService, type ServiceContext, type Actor } from '../../services/index.js';
-import { AuthService, TokenService, AuthorizationService, Sha256Hasher } from '../../auth/index.js';
+import { seedPrincipals, makeAuthDeps } from './_testAuth.js';
 
-const SECRET = 'test-secret-not-real';
-const TS = '2026-06-01T12:00:00.000Z';
 const bossActor: Actor = { id: 'u-boss', username: 'boss', role: 'admin' };
 
-function build() {
-  const gw = new InMemoryGateway({
-    users: [
-      { id: 'u-boss', username: 'boss', fullName: 'Владелец', role: 'admin', isActive: true, createdAt: TS },
-      { id: 'u-admin', username: 'admin', fullName: 'Админ', role: 'admin', isActive: true, createdAt: TS },
-      { id: 'u-viewer', username: 'viewer', fullName: 'Аудитор', role: 'viewer', isActive: true, createdAt: TS },
-    ],
-  });
+async function build() {
+  const gw = new InMemoryGateway({});
   const ctx = createServiceContext(gw);
-  const tokenService = new TokenService(SECRET);
-  const authService = new AuthService(ctx, tokenService, new Sha256Hasher());
-  const app = createApp({ ctx, authService, authorizationService: new AuthorizationService(), tokenService });
-  const tokens = {
-    boss: tokenService.create({ id: 'u-boss', username: 'boss', role: 'admin', fullName: 'Владелец' }),
-    admin: tokenService.create({ id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' }),
-    viewer: tokenService.create({ id: 'u-viewer', username: 'viewer', role: 'viewer', fullName: 'Аудитор' }),
-  };
+  const app = createApp({ ctx, ...makeAuthDeps(ctx) });
+  const tokens = await seedPrincipals(ctx, {
+    boss: { id: 'u-boss', username: 'boss', role: 'admin', fullName: 'Владелец' },
+    admin: { id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' },
+    viewer: { id: 'u-viewer', username: 'viewer', role: 'viewer', fullName: 'Аудитор' },
+  });
   return { app, ctx, tokens };
 }
 const B = (t: string) => `Bearer ${t}`;
@@ -38,7 +28,7 @@ async function seedNomenclature(ctx: ServiceContext): Promise<string> {
 
 describe('Nomenclature routes — чтение', () => {
   it('GET/history/match без auth → 401; с auth → 200', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     const id = await seedNomenclature(ctx);
     expect((await request(app).get('/api/nomenclature')).status).toBe(401);
     expect((await request(app).get('/api/nomenclature').set('Authorization', B(tokens.viewer))).status).toBe(200);
@@ -47,14 +37,14 @@ describe('Nomenclature routes — чтение', () => {
   });
 
   it('match массивный ?q → 400', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).get('/api/nomenclature/match?q=a&q=b').set('Authorization', B(tokens.viewer))).status).toBe(400);
   });
 });
 
 describe('Nomenclature routes — мутации и нормативы', () => {
   it('POST: viewer → 403; admin без норматива → 200; invalid body → 400', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).post('/api/nomenclature').set('Authorization', B(tokens.viewer)).send({ normalizedName: 'X' })).status).toBe(403);
     const ok = await request(app).post('/api/nomenclature').set('Authorization', B(tokens.admin)).send({ normalizedName: 'Деталь' });
     expect(ok.status).toBe(200);
@@ -63,7 +53,7 @@ describe('Nomenclature routes — мутации и нормативы', () => {
   });
 
   it('нормативы: admin с normative → 403 (проверка в сервисе); boss → 200', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     // admin (не boss) пытается задать норматив → сервис бросает FORBIDDEN → 403
     expect(
       (await request(app).post('/api/nomenclature').set('Authorization', B(tokens.admin)).send({ normalizedName: 'A', normativeServiceDays: 180 })).status,
@@ -75,7 +65,7 @@ describe('Nomenclature routes — мутации и нормативы', () => {
   });
 
   it('PUT: admin → 200; отсутствующий → 404; смена норматива admin → 403, boss → 200', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     const id = await seedNomenclature(ctx); // normativeServiceDays=0
     expect(
       (await request(app).put(`/api/nomenclature/${id}`).set('Authorization', B(tokens.admin)).send({ notes: 'обновлено' })).status,
@@ -90,7 +80,7 @@ describe('Nomenclature routes — мутации и нормативы', () => {
   });
 
   it('DELETE: viewer → 403; admin → 200; отсутствующий → 404', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     const id = await seedNomenclature(ctx);
     expect((await request(app).delete(`/api/nomenclature/${id}`).set('Authorization', B(tokens.viewer))).status).toBe(403);
     expect((await request(app).delete(`/api/nomenclature/${id}`).set('Authorization', B(tokens.admin))).status).toBe(200);

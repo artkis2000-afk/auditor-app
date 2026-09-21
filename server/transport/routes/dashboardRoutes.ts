@@ -12,7 +12,7 @@ import { authenticate } from '../authMiddleware.js';
 export function createDashboardRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new DashboardService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
 
   router.get('/stats', auth, validateQuery(dashboardPeriodQuerySchema), async (req, res) => {
     const query = (req.validatedQuery ?? {}) as DashboardPeriodQuery;

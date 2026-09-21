@@ -21,7 +21,7 @@ import { actorOf, idParam } from '../routeHelpers.js';
 export function createNomenclatureRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new NomenclatureService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
   const admin = requireRole(deps.authorizationService, ['admin']);
 
   router.get('/', auth, async (_req, res) => {

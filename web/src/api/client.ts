@@ -1,6 +1,6 @@
+import { getCurrentIdToken } from '../firebase';
 import type {
   AuthUser,
-  LoginResponse,
   DashboardStats,
   DashboardPeriodQuery,
   InvoiceListEntry,
@@ -31,33 +31,6 @@ export interface InvoicesListParams {
   supplierId?: string;
 }
 
-/** Единый ключ токена (совместимо с legacy). */
-const TOKEN_KEY = 'auditor_token';
-
-export const tokenStorage = {
-  get(): string | null {
-    try {
-      return localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  },
-  set(token: string): void {
-    try {
-      localStorage.setItem(TOKEN_KEY, token);
-    } catch {
-      /* ignore (private mode) */
-    }
-  },
-  clear(): void {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* ignore */
-    }
-  },
-};
-
 /** Ошибка API: несёт HTTP-статус и человекочитаемое сообщение (из {error}). */
 export class ApiError extends Error {
   constructor(
@@ -78,7 +51,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = tokenStorage.get();
+  const token = await getCurrentIdToken();
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -119,9 +92,6 @@ function toQuery(params: Record<string, string | number | undefined>): string {
 }
 
 export const api = {
-  login(username: string, password: string): Promise<LoginResponse> {
-    return request<LoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-  },
   me(): Promise<{ user: AuthUser }> {
     return request<{ user: AuthUser }>('/auth/me');
   },
@@ -154,7 +124,7 @@ export const api = {
 
   /** Оригинал изображения как Blob (с Bearer-заголовком; <img src> его отдать не может). */
   async invoiceImageBlob(id: string): Promise<Blob> {
-    const token = tokenStorage.get();
+    const token = await getCurrentIdToken();
     const headers = new Headers();
     if (token) headers.set('Authorization', `Bearer ${token}`);
     let res: Response;

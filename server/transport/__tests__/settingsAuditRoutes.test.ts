@@ -10,31 +10,27 @@ import {
   type Actor,
 } from '../../services/index.js';
 import type { FirestoreGateway } from '../../db/index.js';
-import { AuthService, TokenService, AuthorizationService, Sha256Hasher } from '../../auth/index.js';
+import { seedPrincipals, makeAuthDeps } from './_testAuth.js';
 
-const SECRET = 'test-secret-not-real';
-const TS = '2026-06-01T12:00:00.000Z';
 const adminActor: Actor = { id: 'u-admin', username: 'admin', role: 'admin' };
 
-function buildWith(gateway: FirestoreGateway) {
+async function buildWith(gateway: FirestoreGateway) {
   const ctx: ServiceContext = createServiceContext(gateway);
-  const tokenService = new TokenService(SECRET);
-  const authService = new AuthService(ctx, tokenService, new Sha256Hasher());
-  const app = createApp({ ctx, authService, authorizationService: new AuthorizationService(), tokenService });
-  const tokens = {
-    admin: tokenService.create({ id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' }),
-    viewer: tokenService.create({ id: 'u-viewer', username: 'viewer', role: 'viewer', fullName: 'Аудитор' }),
-  };
+  const app = createApp({ ctx, ...makeAuthDeps(ctx) });
+  const tokens = await seedPrincipals(ctx, {
+    admin: { id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' },
+    viewer: { id: 'u-viewer', username: 'viewer', role: 'viewer', fullName: 'Аудитор' },
+  });
   return { app, ctx, tokens };
 }
-function build() {
+async function build() {
   return buildWith(new InMemoryGateway());
 }
 const B = (t: string) => `Bearer ${t}`;
 
 describe('Settings routes', () => {
   it('GET: no auth → 401; authenticated → 200 (дефолты)', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).get('/api/settings')).status).toBe(401);
     const res = await request(app).get('/api/settings').set('Authorization', B(tokens.viewer));
     expect(res.status).toBe(200);
@@ -42,7 +38,7 @@ describe('Settings routes', () => {
   });
 
   it('POST: no auth → 401; viewer → 403; admin → 200 {success,settings}; invalid body → 400', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).post('/api/settings').send({ anomalyThreshold: 20 })).status).toBe(401);
     expect((await request(app).post('/api/settings').set('Authorization', B(tokens.viewer)).send({ anomalyThreshold: 20 })).status).toBe(403);
     const ok = await request(app).post('/api/settings').set('Authorization', B(tokens.admin)).send({ anomalyThreshold: 25 });
@@ -53,7 +49,7 @@ describe('Settings routes', () => {
   });
 
   it('KI-12 сохранён: settings_update пишет oldValues=null (транспорт со snapshot не работает)', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     await request(app).post('/api/settings').set('Authorization', B(tokens.admin)).send({ anomalyThreshold: 30 });
     const log = (await new AuditService(ctx).list()).find((l) => l.action === 'settings_update')!;
     expect(log.oldValues).toBeNull();
@@ -69,7 +65,7 @@ describe('Settings routes', () => {
       delete: async () => {},
       commitBatch: async () => {},
     };
-    const { app, tokens } = buildWith(throwing);
+    const { app, tokens } = await buildWith(throwing);
     const res = await request(app).get('/api/settings').set('Authorization', B(tokens.admin));
     expect(res.status).toBe(500);
     expect(res.body.stack).toBeUndefined();
@@ -79,7 +75,7 @@ describe('Settings routes', () => {
 
 describe('Audit routes', () => {
   it('GET: no auth → 401; viewer → 403; admin → 200 массив', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).get('/api/audit-logs')).status).toBe(401);
     expect((await request(app).get('/api/audit-logs').set('Authorization', B(tokens.viewer))).status).toBe(403);
     const res = await request(app).get('/api/audit-logs').set('Authorization', B(tokens.admin));
@@ -88,7 +84,7 @@ describe('Audit routes', () => {
   });
 
   it('rollback: no auth → 401; viewer → 403; admin (поддерживаемое действие) → 200', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     const sup = new SupplierService(ctx);
     const s = await sup.create({ name: 'Старое', inn: '111' }, adminActor);
     await sup.update(s.id, { name: 'Новое', inn: '111', isApproved: true }, adminActor);
@@ -102,12 +98,12 @@ describe('Audit routes', () => {
   });
 
   it('rollback: отсутствующий лог → 404', async () => {
-    const { app, tokens } = build();
+    const { app, tokens } = await build();
     expect((await request(app).post('/api/audit-logs/nope/rollback').set('Authorization', B(tokens.admin))).status).toBe(404);
   });
 
   it('rollback: неподдерживаемое действие → 400 (UNSUPPORTED)', async () => {
-    const { app, ctx, tokens } = build();
+    const { app, ctx, tokens } = await build();
     const log = await new AuditService(ctx).log({
       userId: 'u-admin',
       username: 'admin',

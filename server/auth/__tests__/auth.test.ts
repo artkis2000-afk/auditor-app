@@ -1,94 +1,92 @@
-import { describe, it, expect } from 'vitest';
-import { InMemoryGateway } from '../../repositories/__tests__/inMemoryGateway.js';
-import { createServiceContext } from '../../services/context.js';
-import { Sha256Hasher } from '../domain/passwordHasher.js';
-import { TokenService } from '../domain/tokenService.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { SignJWT, generateKeyPair } from 'jose';
+import { JoseFirebaseTokenVerifier } from '../firebaseTokenVerifier.js';
 import { AuthorizationService, type AuthPrincipal } from '../domain/authorizationService.js';
-import { AuthService } from '../services/authService.js';
+import { loadFirebaseAuthConfig } from '../config.js';
 import { AuthError } from '../domain/errors.js';
-import { loadAuthConfig } from '../config.js';
 
-const SECRET = 'test-secret-not-real';
-const TS = '2026-06-01T12:00:00.000Z';
-const hasher = new Sha256Hasher();
+const PROJECT = 'demo-project';
+const ISS = `https://securetoken.google.com/${PROJECT}`;
 
-// пароль для сид-пользователя
-const PASSWORD = 'secret123';
+type KeyPair = Awaited<ReturnType<typeof generateKeyPair>>;
+type PrivKey = KeyPair['privateKey'];
+let privateKey: PrivKey;
+let publicKey: KeyPair['publicKey'];
+let otherPrivateKey: PrivKey;
 
-function ctxWithUsers() {
-  const gw = new InMemoryGateway({
-    users: [
-      { id: 'u-boss', username: 'boss', fullName: 'Владелец', role: 'admin', isActive: true, createdAt: TS },
-      { id: 'u-admin', username: 'admin', fullName: 'Админ', role: 'admin', isActive: true, createdAt: TS },
-      { id: 'u-blocked', username: 'blocked', fullName: 'Блок', role: 'viewer', isActive: false, createdAt: TS },
-    ],
-    passwords: [
-      { id: 'u-boss', hash: hasher.hash(PASSWORD) },
-      { id: 'u-admin', hash: hasher.hash(PASSWORD) },
-      { id: 'u-blocked', hash: hasher.hash(PASSWORD) },
-    ],
-  });
-  return createServiceContext(gw);
+beforeAll(async () => {
+  ({ privateKey, publicKey } = await generateKeyPair('RS256'));
+  ({ privateKey: otherPrivateKey } = await generateKeyPair('RS256'));
+});
+
+function verifier() {
+  // Инъекция локального публичного ключа вместо remote JWKS — оффлайн-проверка подписи.
+  return new JoseFirebaseTokenVerifier({ projectId: PROJECT, keySet: publicKey });
 }
 
-describe('Sha256Hasher', () => {
-  it('hash детерминирован, verify корректен (sha256 hex, без соли)', () => {
-    const h = hasher.hash('8888');
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-    expect(hasher.verify('8888', h)).toBe(true);
-    expect(hasher.verify('9999', h)).toBe(false);
-    expect(hasher.algo).toBe('sha256');
+interface SignOpts {
+  sub?: string | null;
+  iss?: string;
+  aud?: string;
+  expSecondsFromNow?: number;
+  key?: PrivKey;
+  email?: string;
+}
+
+async function sign(opts: SignOpts = {}): Promise<string> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const jwt = new SignJWT({ email: opts.email ?? 'u@example.com', email_verified: true, name: 'Пользователь' })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-kid' })
+    .setIssuedAt()
+    .setIssuer(opts.iss ?? ISS)
+    .setAudience(opts.aud ?? PROJECT)
+    .setExpirationTime(nowSec + (opts.expSecondsFromNow ?? 3600));
+  if (opts.sub !== null) jwt.setSubject(opts.sub ?? 'uid-123');
+  return jwt.sign(opts.key ?? privateKey);
+}
+
+describe('JoseFirebaseTokenVerifier', () => {
+  it('валидный токен → identity (uid/email/emailVerified/name)', async () => {
+    const token = await sign({ sub: 'uid-abc', email: 'owner@example.com' });
+    const id = await verifier().verify(token);
+    expect(id).toMatchObject({ uid: 'uid-abc', email: 'owner@example.com', emailVerified: true, name: 'Пользователь' });
+  });
+
+  it('истёкший токен → TOKEN_EXPIRED', async () => {
+    const token = await sign({ expSecondsFromNow: -3600 });
+    await expect(verifier().verify(token)).rejects.toMatchObject({ code: 'TOKEN_EXPIRED' });
+  });
+
+  it('неверный audience → TOKEN_INVALID', async () => {
+    const token = await sign({ aud: 'other-project' });
+    await expect(verifier().verify(token)).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+
+  it('неверный issuer → TOKEN_INVALID', async () => {
+    const token = await sign({ iss: 'https://securetoken.google.com/evil' });
+    await expect(verifier().verify(token)).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+
+  it('подпись чужим ключом → TOKEN_INVALID', async () => {
+    const token = await sign({ key: otherPrivateKey });
+    await expect(verifier().verify(token)).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+
+  it('нет subject (uid) → TOKEN_INVALID', async () => {
+    const token = await sign({ sub: null });
+    await expect(verifier().verify(token)).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+
+  it('кривая строка → TOKEN_INVALID', async () => {
+    await expect(verifier().verify('not-a-jwt')).rejects.toMatchObject({ code: 'TOKEN_INVALID' });
+  });
+
+  it('пустой projectId → CONFIG', () => {
+    expect(() => new JoseFirebaseTokenVerifier({ projectId: '' })).toThrow(AuthError);
   });
 });
 
-describe('TokenService (формат legacy 1:1)', () => {
-  it('конструктор без секрета → CONFIG', () => {
-    expect(() => new TokenService('')).toThrow(AuthError);
-  });
-
-  it('create → verify (валидный), payload содержит id/username/role/fullName/exp(ms)', () => {
-    const now = 1_000_000;
-    const svc = new TokenService(SECRET, { now: () => now });
-    const token = svc.create({ id: 'u-boss', username: 'boss', role: 'admin', fullName: 'Владелец' });
-    expect(token.split('.')).toHaveLength(3);
-    const res = svc.verify(token);
-    expect(res.valid).toBe(true);
-    if (res.valid) {
-      expect(res.claims.username).toBe('boss');
-      expect(res.claims.role).toBe('admin');
-      expect(res.claims.exp).toBe(now + 24 * 60 * 60 * 1000); // exp в миллисекундах
-    }
-  });
-
-  it('подделанная подпись → bad_signature', () => {
-    const svc = new TokenService(SECRET, { now: () => 1000 });
-    const token = svc.create({ id: 'u', username: 'boss', role: 'admin', fullName: 'X' });
-    const tampered = token.slice(0, -1) + (token.endsWith('a') ? 'b' : 'a');
-    const res = svc.verify(tampered);
-    expect(res).toMatchObject({ valid: false, reason: 'bad_signature' });
-  });
-
-  it('истёкший токен → expired', () => {
-    const signer = new TokenService(SECRET, { now: () => 1000 });
-    const token = signer.create({ id: 'u', username: 'boss', role: 'admin', fullName: 'X' });
-    const later = new TokenService(SECRET, { now: () => 1000 + 25 * 60 * 60 * 1000 });
-    expect(later.verify(token)).toMatchObject({ valid: false, reason: 'expired' });
-  });
-
-  it('кривой токен → malformed', () => {
-    const svc = new TokenService(SECRET);
-    expect(svc.verify('abc')).toMatchObject({ valid: false, reason: 'malformed' });
-  });
-
-  it('другой секрет не проходит проверку', () => {
-    const a = new TokenService('secret-a', { now: () => 1000 });
-    const b = new TokenService('secret-b', { now: () => 1000 });
-    const token = a.create({ id: 'u', username: 'boss', role: 'admin', fullName: 'X' });
-    expect(b.verify(token).valid).toBe(false);
-  });
-});
-
-describe('AuthorizationService (предикаты legacy 1:1)', () => {
+describe('AuthorizationService (предикаты, переходно до 5.2)', () => {
   const authz = new AuthorizationService();
   const boss: AuthPrincipal = { username: 'boss', role: 'admin' };
   const admin: AuthPrincipal = { username: 'admin', role: 'admin' };
@@ -118,67 +116,23 @@ describe('AuthorizationService (предикаты legacy 1:1)', () => {
   });
 });
 
-describe('AuthService.login', () => {
-  const token = () => new TokenService(SECRET, { now: () => 1000 });
-
-  it('успех → token + user', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    const res = await svc.login('boss', PASSWORD);
-    expect(res.token.split('.')).toHaveLength(3);
-    expect(res.user).toEqual({ id: 'u-boss', username: 'boss', fullName: 'Владелец', role: 'admin' });
+describe('loadFirebaseAuthConfig', () => {
+  it('нет FIREBASE_PROJECT_ID/GCP_PROJECT_ID → CONFIG', () => {
+    expect(() => loadFirebaseAuthConfig({} as NodeJS.ProcessEnv)).toThrow(AuthError);
   });
 
-  it('логин без учёта регистра username', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    const res = await svc.login('BOSS', PASSWORD);
-    expect(res.user.id).toBe('u-boss');
+  it('projectId + парсинг AUTH_ADMIN_EMAILS (нижний регистр, trim)', () => {
+    const cfg = loadFirebaseAuthConfig({
+      FIREBASE_PROJECT_ID: 'proj',
+      AUTH_ADMIN_EMAILS: ' Owner@Example.com , boss@x.ru ',
+    } as NodeJS.ProcessEnv);
+    expect(cfg.projectId).toBe('proj');
+    expect(cfg.adminEmails).toEqual(['owner@example.com', 'boss@x.ru']);
   });
 
-  it('нет полей → MISSING_CREDENTIALS', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    await expect(svc.login('', '')).rejects.toMatchObject({ code: 'MISSING_CREDENTIALS' });
-  });
-
-  it('неизвестный пользователь → USER_NOT_FOUND', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    await expect(svc.login('ghost', PASSWORD)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
-  });
-
-  it('заблокированный пользователь → USER_NOT_FOUND', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    await expect(svc.login('blocked', PASSWORD)).rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
-  });
-
-  it('неверный пароль → INVALID_PASSWORD', async () => {
-    const svc = new AuthService(ctxWithUsers(), token(), hasher);
-    await expect(svc.login('boss', 'wrong')).rejects.toMatchObject({ code: 'INVALID_PASSWORD' });
-  });
-});
-
-describe('AuthService.getCurrentUser', () => {
-  it('валидный токен → user из payload', async () => {
-    const ts = new TokenService(SECRET, { now: () => 1000 });
-    const svc = new AuthService(ctxWithUsers(), ts, hasher);
-    const { token } = await svc.login('admin', PASSWORD);
-    expect(svc.getCurrentUser(token)).toEqual({ id: 'u-admin', username: 'admin', fullName: 'Админ', role: 'admin' });
-  });
-
-  it('истёкший → TOKEN_EXPIRED; кривой → TOKEN_INVALID', async () => {
-    const signer = new TokenService(SECRET, { now: () => 1000 });
-    const token = signer.create({ id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' });
-    const laterSvc = new AuthService(ctxWithUsers(), new TokenService(SECRET, { now: () => 1000 + 25 * 3600 * 1000 }), hasher);
-    expect(() => laterSvc.getCurrentUser(token)).toThrow(expect.objectContaining({ code: 'TOKEN_EXPIRED' }));
-
-    const svc = new AuthService(ctxWithUsers(), new TokenService(SECRET), hasher);
-    expect(() => svc.getCurrentUser('garbage')).toThrow(expect.objectContaining({ code: 'TOKEN_INVALID' }));
-  });
-});
-
-describe('loadAuthConfig', () => {
-  it('нет JWT_SECRET → CONFIG', () => {
-    expect(() => loadAuthConfig({} as NodeJS.ProcessEnv)).toThrow(AuthError);
-  });
-  it('есть JWT_SECRET → возвращает секрет', () => {
-    expect(loadAuthConfig({ JWT_SECRET: 'x' } as NodeJS.ProcessEnv)).toEqual({ jwtSecret: 'x' });
+  it('GCP_PROJECT_ID как fallback; пустой AUTH_ADMIN_EMAILS → []', () => {
+    const cfg = loadFirebaseAuthConfig({ GCP_PROJECT_ID: 'proj2' } as NodeJS.ProcessEnv);
+    expect(cfg.projectId).toBe('proj2');
+    expect(cfg.adminEmails).toEqual([]);
   });
 });

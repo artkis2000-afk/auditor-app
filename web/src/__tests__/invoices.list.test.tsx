@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import { installFetch, renderApp, setToken, AUTH_USER, type RouteResp } from '../test/utils';
+vi.mock('../firebase', () => import('../test/fakeFirebase'));
+import { __setUser, __reset } from '../test/fakeFirebase';
+import { installFetch, renderApp, AUTH_USER, FIREBASE_USER, type RouteResp } from '../test/utils';
+
+beforeEach(() => __reset());
 
 const ROW = {
   id: 'inv-1',
@@ -28,7 +32,7 @@ function base(url: string): RouteResp | null {
 
 describe('Invoices list', () => {
   it('успех → показывает строки накладных', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => base(url) ?? (url.includes('/invoices') ? { status: 200, body: [ROW] } : { status: 200, body: {} }));
     renderApp('/invoices');
     // строка рендерится и в таблице (desktop), и в карточке (mobile) — оба в DOM.
@@ -37,14 +41,14 @@ describe('Invoices list', () => {
   });
 
   it('пусто → empty state', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => base(url) ?? (url.includes('/invoices') ? { status: 200, body: [] } : { status: 200, body: {} }));
     renderApp('/invoices');
     expect(await screen.findByText('Накладных пока нет')).toBeInTheDocument();
   });
 
   it('ошибка API → error state с повтором', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => base(url) ?? (url.includes('/invoices') ? { status: 500, body: { error: 'Внутренняя ошибка сервера' } } : { status: 200, body: {} }));
     renderApp('/invoices');
     expect(await screen.findByText('Внутренняя ошибка сервера')).toBeInTheDocument();
@@ -52,7 +56,7 @@ describe('Invoices list', () => {
   });
 
   it('401 → централизованный разлогин и редирект на login', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => base(url) ?? (url.includes('/invoices') ? { status: 401, body: { error: 'Сессия истекла' } } : { status: 200, body: {} }));
     renderApp('/invoices');
     expect(await screen.findByText(/Вход в систему аудита закупок/)).toBeInTheDocument();

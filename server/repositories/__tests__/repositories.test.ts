@@ -78,23 +78,6 @@ describe('InvoiceRepository.listActive', () => {
   });
 });
 
-describe('CredentialRepository (коллекция passwords)', () => {
-  it('старый формат {hash} → algo=sha256', async () => {
-    const gw = new InMemoryGateway({ passwords: [{ id: 'u-boss', hash: 'abc123' }] });
-    const { credentials } = createRepositories(gw);
-    const c = await credentials.getByUserId('u-boss');
-    expect(c?.algo).toBe('sha256');
-    expect(c?.hash).toBe('abc123');
-  });
-
-  it('set записывает {algo, hash} по userId', async () => {
-    const gw = new InMemoryGateway();
-    const { credentials } = createRepositories(gw);
-    await credentials.set({ userId: 'u-admin', algo: 'sha256', hash: 'deadbeef' });
-    expect(gw.raw('passwords')[0]).toEqual({ algo: 'sha256', hash: 'deadbeef' });
-  });
-});
-
 describe('SettingsRepository (settings/global)', () => {
   it('get → дефолты, если документа нет', async () => {
     const { settings } = createRepositories(new InMemoryGateway());
@@ -115,12 +98,16 @@ describe('SettingsRepository (settings/global)', () => {
   });
 });
 
-describe('UserRepository.findByUsername', () => {
-  it('находит без учёта регистра', async () => {
+describe('UserRepository (профиль users/{uid})', () => {
+  it('getById читает профиль по uid', async () => {
     const gw = new InMemoryGateway({
-      users: [{ id: 'u-boss', username: 'boss', fullName: 'Б', role: 'admin', isActive: true, createdAt: ts }],
+      users: [
+        { id: 'uid-1', username: 'owner@example.com', fullName: 'Владелец', role: 'admin', isActive: true, createdAt: ts },
+      ],
     });
     const { users } = createRepositories(gw);
-    expect((await users.findByUsername('BOSS'))?.id).toBe('u-boss');
+    const u = await users.getById('uid-1');
+    expect(u?.username).toBe('owner@example.com');
+    expect(u?.email).toBeNull(); // отсутствующее поле → дефолт схемы
   });
 });

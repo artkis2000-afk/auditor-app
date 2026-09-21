@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+vi.mock('../firebase', () => import('../test/fakeFirebase'));
 import { installFetch, type RouteResp } from '../test/utils';
 import { UploadModal } from '../components/UploadModal';
 import { compressImage, CompressionError } from '../lib/compressImage';

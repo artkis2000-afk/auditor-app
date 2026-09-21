@@ -13,7 +13,7 @@ import { actorOf } from '../routeHelpers.js';
 export function createWarehouseRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new WarehouseService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
   const admin = requireRole(deps.authorizationService, ['admin']);
 
   router.post('/add', auth, admin, validateBody(warehouseAddRequestSchema), async (req, res) => {
