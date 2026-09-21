@@ -12,7 +12,7 @@ import { DeterministicMockOcrProvider, PassthroughImagePreprocessor } from '../a
  */
 function buildSmokeApp() {
   const imageStore = new InMemoryImageStore();
-  return composeApp(new InMemoryGateway(), 'smoke-secret-not-real', {
+  return composeApp(new InMemoryGateway(), { projectId: 'demo-project', adminEmails: [] }, {
     imageStore,
     ocr: { fallback: new DeterministicMockOcrProvider(), preprocessor: new PassthroughImagePreprocessor(), imageStore },
   });
@@ -29,9 +29,9 @@ describe('composition root wiring (smoke)', () => {
     expect(res.body).toEqual({ status: 'ok' });
   });
 
-  it('auth-роут смонтирован: POST /api/auth/login существует (не 404)', async () => {
-    const res = await request(buildSmokeApp()).post('/api/auth/login').send({});
-    expect(res.status).not.toBe(404);
+  it('auth-роут смонтирован: GET /api/auth/me существует (без токена → 401, не 404)', async () => {
+    const res = await request(buildSmokeApp()).get('/api/auth/me');
+    expect(res.status).toBe(401);
   });
 
   it('защищённый эндпоинт без токена → 401', async () => {

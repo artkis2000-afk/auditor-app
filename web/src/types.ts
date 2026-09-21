@@ -2,11 +2,7 @@
  * Фронтенд переиспользует shared DTO backend'а (type-only импорты стираются при сборке —
  * рантайм-зависимость от zod/shared не тянется). Вторые копии моделей не создаём.
  */
-export type {
-  AuthUser,
-  LoginRequest,
-  LoginResponse,
-} from '@shared/dto/auth.js';
+export type { AuthUser } from '@shared/dto/auth.js';
 
 export type {
   DashboardStats,

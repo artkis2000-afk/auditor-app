@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   userSchema,
-  credentialSchema,
   supplierSchema,
   nomenclatureSchema,
   nomenclatureAliasSchema,
@@ -14,7 +13,6 @@ import {
   systemSettingsSchema,
   invoiceStatusSchema,
   anomalyFlagTypeSchema,
-  loginRequestSchema,
   manualInvoiceRequestSchema,
   warehouseAllocateRequestSchema,
   vehicleExclusionToggleRequestSchema,
@@ -36,21 +34,19 @@ describe('enums', () => {
 });
 
 describe('entity schemas — совместимость с реальными документами', () => {
-  it('user (сид boss)', () => {
+  it('user (профиль Firebase: uid + переходная роль; новые поля → дефолты)', () => {
     const u = userSchema.parse({
-      id: 'u-boss',
-      username: 'boss',
+      id: 'uid-owner',
+      username: 'owner@example.com',
       fullName: 'Киселев Денис Васильевич',
       role: 'admin',
       isActive: true,
       createdAt: '2026-06-01T12:00:00.000Z',
     });
     expect(u.role).toBe('admin');
-  });
-
-  it('credential применяет algo=sha256 по умолчанию (старый формат — только hash)', () => {
-    const c = credentialSchema.parse({ userId: 'u-boss', hash: 'abc123' });
-    expect(c.algo).toBe('sha256');
+    expect(u.email).toBeNull();
+    expect(u.displayName).toBeNull();
+    expect(u.photoURL).toBeNull();
   });
 
   it('supplier подставляет дефолты для отсутствующих необязательных полей', () => {
@@ -194,11 +190,6 @@ describe('entity schemas — совместимость с реальными д
 });
 
 describe('DTO валидация', () => {
-  it('login: валидный проходит, без пароля — отклоняется', () => {
-    expect(loginRequestSchema.parse({ username: 'boss', password: '8888' })).toBeTruthy();
-    expect(() => loginRequestSchema.parse({ username: 'boss' })).toThrow();
-  });
-
   it('manualInvoice: coerce строковых чисел из формы', () => {
     const r = manualInvoiceRequestSchema.parse({
       supplierName: 'ООО Тест',

@@ -11,18 +11,15 @@ import {
   VehicleRepository,
   VehicleExclusionRepository,
 } from './entityRepositories.js';
-import { CredentialRepository } from './credentialRepository.js';
 import { SettingsRepository } from './settingsRepository.js';
 
 export * from './baseRepository.js';
 export * from './entityRepositories.js';
-export * from './credentialRepository.js';
 export * from './settingsRepository.js';
 
 /** Полный набор репозиториев поверх одного шлюза Firestore. */
 export interface Repositories {
   users: UserRepository;
-  credentials: CredentialRepository;
   suppliers: SupplierRepository;
   nomenclature: NomenclatureRepository;
   nomenclatureAliases: NomenclatureAliasRepository;
@@ -38,7 +35,6 @@ export interface Repositories {
 export function createRepositories(gateway: FirestoreGateway): Repositories {
   return {
     users: new UserRepository(gateway),
-    credentials: new CredentialRepository(gateway),
     suppliers: new SupplierRepository(gateway),
     nomenclature: new NomenclatureRepository(gateway),
     nomenclatureAliases: new NomenclatureAliasRepository(gateway),

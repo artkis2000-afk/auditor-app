@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { api, tokenStorage, setUnauthorizedHandler, ApiError } from '../api/client';
+import { api, setUnauthorizedHandler } from '../api/client';
+import { subscribeAuth, signInWithGoogle, signOutUser } from '../firebase';
 import type { AuthUser } from '../types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -7,67 +8,77 @@ type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 interface AuthState {
   status: AuthStatus;
   user: AuthUser | null;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
+/**
+ * PHASE 5.1: source of truth аутентификации — Firebase Auth.
+ * Подписываемся на Firebase auth state; при наличии пользователя тянем профиль приложения
+ * через GET /api/auth/me (роль/имя — из бэкенда, не из клиентских claim'ов).
+ */
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  const logout = useCallback(() => {
-    tokenStorage.clear();
+  useEffect(() => {
+    let cancelled = false;
+
+    // 401 из любого запроса → принудительный выход из Firebase.
+    setUnauthorizedHandler(() => {
+      void signOutUser();
+      if (cancelled) return;
+      setUser(null);
+      setStatus('unauthenticated');
+    });
+
+    const unsubscribe = subscribeAuth((fbUser) => {
+      if (cancelled) return;
+      if (!fbUser) {
+        setUser(null);
+        setStatus('unauthenticated');
+        return;
+      }
+      setStatus('loading');
+      api
+        .me()
+        .then(({ user: profile }) => {
+          if (cancelled) return;
+          setUser(profile);
+          setStatus('authenticated');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Бэкенд отверг токен/профиль → выходим из Firebase, на login.
+          void signOutUser();
+          setUser(null);
+          setStatus('unauthenticated');
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      setUnauthorizedHandler(null);
+      unsubscribe();
+    };
+  }, []);
+
+  const loginWithGoogle = useCallback(async () => {
+    // Состояние обновится через subscribeAuth → api.me().
+    await signInWithGoogle();
+  }, []);
+
+  const logout = useCallback(async () => {
+    await signOutUser();
     setUser(null);
     setStatus('unauthenticated');
   }, []);
 
-  // Централизованная обработка 401 из любого запроса → разлогин.
-  useEffect(() => {
-    setUnauthorizedHandler(() => {
-      tokenStorage.clear();
-      setUser(null);
-      setStatus('unauthenticated');
-    });
-    return () => setUnauthorizedHandler(null);
-  }, []);
-
-  // Старт приложения: нет токена → login; есть → проверяем через /me.
-  useEffect(() => {
-    let cancelled = false;
-    const token = tokenStorage.get();
-    if (!token) {
-      setStatus('unauthenticated');
-      return;
-    }
-    api
-      .me()
-      .then(({ user: u }) => {
-        if (cancelled) return;
-        setUser(u);
-        setStatus('authenticated');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        // Любой сбой /me на старте (истёкший/битый токен, ошибка) → чистим токен и на login.
-        tokenStorage.clear();
-        setUser(null);
-        setStatus('unauthenticated');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await api.login(username, password);
-    tokenStorage.set(res.token);
-    setUser(res.user);
-    setStatus('authenticated');
-  }, []);
-
-  return <AuthContext.Provider value={{ status, user, login, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ status, user, loginWithGoogle, logout }}>{children}</AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

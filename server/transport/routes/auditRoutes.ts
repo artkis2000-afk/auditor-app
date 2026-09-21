@@ -12,7 +12,7 @@ import { actorOf, idParam } from '../routeHelpers.js';
 export function createAuditRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new AuditService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
   const admin = requireRole(deps.authorizationService, ['admin']);
 
   router.get('/', auth, admin, async (_req, res) => {

@@ -26,10 +26,6 @@ export function installFetch(handler: FetchHandler): ReturnType<typeof vi.fn> {
   return mock;
 }
 
-export function setToken(token = 'test-token'): void {
-  localStorage.setItem('auditor_token', token);
-}
-
 /** Рендер всего приложения (App) на MemoryRouter + AuthProvider. */
 export function renderApp(initialPath = '/dashboard') {
   return render(
@@ -41,7 +37,22 @@ export function renderApp(initialPath = '/dashboard') {
   );
 }
 
-export const AUTH_USER = { id: 'u1', username: 'boss', fullName: 'Главный Аудитор', role: 'admin' as const };
+/** Профиль (ответ GET /api/auth/me) для аутентифицированного пользователя в тестах. */
+export const AUTH_USER = {
+  id: 'u1',
+  username: 'boss@example.com',
+  fullName: 'Главный Аудитор',
+  role: 'admin' as const,
+  email: 'boss@example.com',
+};
+
+/** Firebase-личность (для fakeFirebase.__setUser) — «вошедший» пользователь. */
+export const FIREBASE_USER = {
+  uid: 'u1',
+  email: 'boss@example.com',
+  displayName: 'Главный Аудитор',
+  photoURL: null,
+};
 
 export const EMPTY_STATS = {
   totalInvoicesCount: 0,

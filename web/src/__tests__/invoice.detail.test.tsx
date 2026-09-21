@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { installFetch, renderApp, setToken, AUTH_USER, type RouteResp } from '../test/utils';
+vi.mock('../firebase', () => import('../test/fakeFirebase'));
+import { __setUser, __reset } from '../test/fakeFirebase';
+import { installFetch, renderApp, AUTH_USER, FIREBASE_USER, type RouteResp } from '../test/utils';
+
+beforeEach(() => __reset());
 
 const ITEM = {
   id: 'ii1',
@@ -40,7 +44,7 @@ const meVeh = (url: string): RouteResp | null => {
 
 describe('Invoice detail', () => {
   it('рендерит данные, позиции и сопоставление', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => meVeh(url) ?? (url.endsWith('/invoices/inv-1') ? { status: 200, body: detail('confirmed', { items: [ITEM] }) } : { status: 200, body: {} }));
     renderApp('/invoices/inv-1');
     expect(await screen.findByText('Гайка колесная (260602117)')).toBeInTheDocument();
@@ -50,7 +54,7 @@ describe('Invoice detail', () => {
   });
 
   it('показывает аномалии', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     const flags = [{ id: 'f1', invoiceItemId: 'ii1', invoiceId: 'inv-1', flagType: 'price_anomaly', details: 'Цена выше средней на 40%', severity: 'high', isResolved: false, createdAt: 'x' }];
     installFetch((url): RouteResp => meVeh(url) ?? (url.endsWith('/invoices/inv-1') ? { status: 200, body: detail('flagged', { items: [ITEM], flags }) } : { status: 200, body: {} }));
     renderApp('/invoices/inv-1');
@@ -60,7 +64,7 @@ describe('Invoice detail', () => {
   });
 
   it('auto-OCR: processing → распознаётся → появляются позиции', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     let calls = 0;
     installFetch((url): RouteResp => {
       const m = meVeh(url);
@@ -77,7 +81,7 @@ describe('Invoice detail', () => {
   });
 
   it('OCR ошибка → баннер + повтор распознавания', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     let detailCalls = 0;
     let ocrCalls = 0;
     installFetch((url): RouteResp => {
@@ -105,7 +109,7 @@ describe('Invoice detail', () => {
   });
 
   it('подтверждение накладной → статус обновляется', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     let calls = 0;
     installFetch((url, init): RouteResp => {
       const m = meVeh(url);

@@ -1,5 +1,6 @@
 export * from './context.js';
 export * from './errors.js';
+export * from './userService.js';
 export * from './auditService.js';
 export * from './anomalyService.js';
 export * from './invoiceHelpers.js';

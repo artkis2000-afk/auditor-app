@@ -27,10 +27,7 @@ export class UserRepository extends FirestoreRepository<User> {
   constructor(gateway: FirestoreGateway) {
     super(gateway, 'users', userSchema);
   }
-  async findByUsername(username: string): Promise<User | null> {
-    const all = await this.getAll();
-    return all.find((u) => u.username.toLowerCase() === username.toLowerCase()) ?? null;
-  }
+  // docId == Firebase UID → getById(uid) достаточно (PHASE 5.1).
 }
 
 export class SupplierRepository extends FirestoreRepository<Supplier> {

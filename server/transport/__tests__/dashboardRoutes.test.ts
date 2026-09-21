@@ -4,25 +4,19 @@ import { createApp } from '../app.js';
 import { InMemoryGateway } from '../../repositories/__tests__/inMemoryGateway.js';
 import { createServiceContext } from '../../services/index.js';
 import type { FirestoreGateway } from '../../db/index.js';
-import { AuthService, TokenService, AuthorizationService, Sha256Hasher } from '../../auth/index.js';
+import { makeAuthDeps, encodeStubToken } from './_testAuth.js';
 
-const SECRET = 'test-secret-not-real';
-const TS = '2026-06-01T12:00:00.000Z';
+// Профиль users/{uid} создаётся лениво в authenticate; дашборд требует лишь authenticated.
+const TOKEN = encodeStubToken({ uid: 'u-admin', email: 'admin@example.com', emailVerified: true, name: 'Админ' });
 
 function buildWith(gateway: FirestoreGateway) {
   const ctx = createServiceContext(gateway);
-  const tokenService = new TokenService(SECRET);
-  const authService = new AuthService(ctx, tokenService, new Sha256Hasher());
-  const app = createApp({ ctx, authService, authorizationService: new AuthorizationService(), tokenService });
-  const token = tokenService.create({ id: 'u-admin', username: 'admin', role: 'admin', fullName: 'Админ' });
-  return { app, token };
+  const app = createApp({ ctx, ...makeAuthDeps(ctx) });
+  return { app, token: TOKEN };
 }
 
 function build() {
-  const gw = new InMemoryGateway({
-    users: [{ id: 'u-admin', username: 'admin', fullName: 'Админ', role: 'admin', isActive: true, createdAt: TS }],
-  });
-  return buildWith(gw);
+  return buildWith(new InMemoryGateway({}));
 }
 const B = (t: string) => `Bearer ${t}`;
 

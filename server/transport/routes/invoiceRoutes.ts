@@ -40,7 +40,7 @@ function extractPin(req: Request): string | undefined {
 export function createInvoiceRouter(deps: AppDeps): Router {
   const router = Router();
   const service = new InvoiceService(deps.ctx);
-  const auth = authenticate(deps.authService);
+  const auth = authenticate(deps.firebaseVerifier, deps.userService);
   const admin = requireRole(deps.authorizationService, ['admin']);
   const uploader = requireRole(deps.authorizationService, ['admin', 'manager']);
 

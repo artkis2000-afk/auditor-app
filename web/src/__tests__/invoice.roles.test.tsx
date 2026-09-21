@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { installFetch, renderApp, setToken, type RouteResp } from '../test/utils';
+vi.mock('../firebase', () => import('../test/fakeFirebase'));
+import { __setUser, __reset } from '../test/fakeFirebase';
+import { installFetch, renderApp, FIREBASE_USER, type RouteResp } from '../test/utils';
+
+beforeEach(() => __reset());
 
 const VIEWER = { id: 'v', username: 'auditor', role: 'viewer', fullName: 'Аудитор' };
 const MANAGER = { id: 'm', username: 'manager', role: 'manager', fullName: 'Менеджер' };
@@ -25,7 +29,7 @@ const common = (user: unknown) => (url: string): RouteResp | null => {
 
 describe('Role contract на invoice detail', () => {
   it('viewer: processing → без OCR-запроса, «ожидает обработки», без действий', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     const f = installFetch((url): RouteResp => common(VIEWER)(url) ?? (url.endsWith('/invoices/inv-1') ? { status: 200, body: detail('processing') } : { status: 200, body: {} }));
     renderApp('/invoices/inv-1');
     expect(await screen.findByText(/ожидает обработки/i)).toBeInTheDocument();
@@ -36,7 +40,7 @@ describe('Role contract на invoice detail', () => {
   });
 
   it('manager: после ошибки OCR (draft) НЕ показывает «Повторить OCR»; confirm/delete скрыты', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     const f = installFetch((url): RouteResp => common(MANAGER)(url) ?? (url.endsWith('/invoices/inv-1') ? { status: 200, body: detail('draft', { ocrError: 'Gemini недоступен' }) } : { status: 200, body: {} }));
     renderApp('/invoices/inv-1');
     expect(await screen.findByText(/Ошибка распознавания: Gemini недоступен/)).toBeInTheDocument();
@@ -47,7 +51,7 @@ describe('Role contract на invoice detail', () => {
   });
 
   it('admin: после ошибки OCR (draft) показывает активную кнопку «Повторить OCR»', async () => {
-    setToken();
+    __setUser(FIREBASE_USER);
     installFetch((url): RouteResp => common(ADMIN)(url) ?? (url.endsWith('/invoices/inv-1') ? { status: 200, body: detail('draft', { ocrError: 'Gemini недоступен' }) } : { status: 200, body: {} }));
     renderApp('/invoices/inv-1');
     const retry = await screen.findByRole('button', { name: 'Повторить OCR' });
