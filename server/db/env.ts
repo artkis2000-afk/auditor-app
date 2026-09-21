@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Конфигурация подключения к Firebase (server-side, Admin SDK).
  * Значения берутся ТОЛЬКО из окружения — секреты в код не помещаются.
  *
- * Credentials НЕ обязательны (keyless-архитектура). Выбор провайдера (см. adminApp.ts):
+ * Credentials НЕ обязательны (keyless-архитектура). Выбор провайдера (см. googleAuth.ts):
  *  1. FIREBASE_SERVICE_ACCOUNT — JSON сервисного аккаунта строкой (опциональный escape hatch);
  *  2. Workload Identity Federation (Vercel OIDC) — если заданы GCP_* переменные;
  *  3. Application Default Credentials — local `gcloud auth application-default login`

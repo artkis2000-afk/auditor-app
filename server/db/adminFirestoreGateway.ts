@@ -1,7 +1,6 @@
-import type { App } from 'firebase-admin/app';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { Firestore } from '@google-cloud/firestore';
 import type { FirebaseEnv } from './env.js';
-import { getAdminApp } from './adminApp.js';
+import { getGoogleCloudAuth } from './googleAuth.js';
 import { FirestoreError, type BatchOp, type FirestoreGateway, type RawDoc } from './firestoreGateway.js';
 import { retryTransient } from './retry.js';
 
@@ -39,27 +38,33 @@ function sanitize(value: unknown): unknown {
 }
 
 /**
- * Реализация FirestoreGateway поверх Firebase Admin SDK.
- * Единственное место, знающее про SDK. Ленивая инициализация приложения и БД.
+ * Реализация FirestoreGateway поверх официального @google-cloud/firestore (keyless).
+ * Единственное место, знающее про SDK. Credentials — из единого auth-адаптера
+ * (getGoogleCloudAuth: ADC локально, Vercel OIDC → WIF в production; без service-account key).
+ * Клиент создаётся лениво самим Firestore SDK (сеть не трогается в конструкторе).
+ * Имя класса историческое (было на Firebase Admin) — сохранено ради стабильности импортов.
  */
 export class AdminFirestoreGateway implements FirestoreGateway {
   private db: Firestore;
 
   constructor(env: FirebaseEnv) {
-    let app: App;
+    let firestoreAuth;
     try {
-      app = getAdminApp(env);
+      firestoreAuth = getGoogleCloudAuth(env).firestoreAuth;
     } catch (err) {
-      throw new FirestoreError('Не удалось инициализировать Firebase Admin SDK', err);
+      throw new FirestoreError('Не удалось инициализировать Google Cloud auth', err);
     }
 
     try {
-      this.db =
-        env.databaseId && env.databaseId !== '(default)'
-          ? getFirestore(app, env.databaseId)
-          : getFirestore(app);
+      // Явные projectId и databaseId ('(default)' допустим). auth пробрасывается google-gax
+      // как settings.auth (Settings поддерживает доп. свойства). Транспорт по умолчанию (как в legacy).
+      this.db = new Firestore({
+        projectId: env.projectId,
+        databaseId: env.databaseId,
+        auth: firestoreAuth,
+      });
     } catch (err) {
-      throw new FirestoreError('Не удалось получить экземпляр Firestore', err);
+      throw new FirestoreError('Не удалось создать клиент Firestore', err);
     }
   }
 

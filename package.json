@@ -19,10 +19,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.1.0",
+    "@google-cloud/storage": "^8.1.0",
     "@google/genai": "^2.23.0",
     "@vercel/oidc": "^3.8.8",
     "express": "^5.2.1",
-    "firebase-admin": "^14.4.0",
     "google-auth-library": "^11.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

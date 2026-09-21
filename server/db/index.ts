@@ -9,7 +9,7 @@ export { AdminFirestoreGateway } from './adminFirestoreGateway.js';
 let gatewaySingleton: FirestoreGateway | null = null;
 
 /**
- * Возвращает единый (ленивый) шлюз к Firestore на Admin SDK.
+ * Возвращает единый (ленивый) шлюз к Firestore на @google-cloud/firestore (keyless).
  * Firestore — единственный источник истины: локального fallback нет.
  * Если конфигурация/подключение недоступны — бросается понятная ошибка
  * (API-слой преобразует её в 503, а не работает с пустой/устаревшей БД).

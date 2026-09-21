@@ -17,7 +17,7 @@ import { createAuditRouter } from './routes/auditRoutes.js';
 
 /**
  * Фабрика Express-приложения (DI). Цепочка: request → validation → auth → authorization → service → response.
- * Routes не импортируют firebase-admin и не работают с repositories напрямую.
+ * Routes не импортируют БД/SDK-клиенты и не работают с repositories напрямую.
  */
 export function createApp(deps: AppDeps): Express {
   const app = express();

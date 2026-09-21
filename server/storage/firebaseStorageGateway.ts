@@ -1,6 +1,6 @@
-import { getStorage } from 'firebase-admin/storage';
+import { Storage, type StorageOptions } from '@google-cloud/storage';
 import type { FirebaseEnv } from '../db/env.js';
-import { getAdminApp } from '../db/adminApp.js';
+import { buildStorageAuthOptions } from '../db/googleAuth.js';
 import { type ImageStore, type StoredImage, ImageStoreError } from './imageStore.js';
 
 /**
@@ -19,9 +19,10 @@ export interface BucketLike {
 }
 
 /**
- * ImageStore поверх Firebase Storage (GCS). Единственное место, знающее про SDK хранилища.
- * Переиспускает уже инициализированное Admin App (см. getAdminApp) — второй Firebase app не создаётся.
- * В domain и routes не импортируется.
+ * ImageStore поверх Firebase Storage (GCS) через официальный @google-cloud/storage (keyless).
+ * Единственное место, знающее про SDK хранилища. В domain и routes не импортируется.
+ * Имя класса историческое — бакет по-прежнему Firebase Storage (FIREBASE_STORAGE_BUCKET),
+ * сменился только SDK-клиент (без service-account key).
  */
 export class FirebaseStorageGateway implements ImageStore {
   constructor(private readonly bucket: BucketLike) {}
@@ -63,8 +64,51 @@ export class FirebaseStorageGateway implements ImageStore {
 }
 
 /**
+ * Ленивый BucketLike: клиент @google-cloud/storage и bucket создаются при ПЕРВОМ обращении
+ * и кешируются на lifetime инстанса. Credentials строятся встроенной в Storage
+ * google-auth-library из общего конфига (buildStorageAuthOptions) — см. заметку о версиях
+ * в db/googleAuth.ts. Сеть в конструкторе gateway не трогается.
+ */
+function createLazyBucket(env: FirebaseEnv, bucketName: string): BucketLike {
+  let bucketPromise: Promise<import('@google-cloud/storage').Bucket> | null = null;
+  const getBucket = (): Promise<import('@google-cloud/storage').Bucket> => {
+    if (!bucketPromise) {
+      bucketPromise = (async () => {
+        // Cross-version boundary: наш StorageAuthOptions → StorageOptions встроенной lib Storage.
+        const options = buildStorageAuthOptions(env) as unknown as StorageOptions;
+        return new Storage(options).bucket(bucketName);
+      })();
+    }
+    return bucketPromise;
+  };
+
+  return {
+    file(key: string): FileLike {
+      return {
+        async save(data, options) {
+          return (await getBucket()).file(key).save(data, options);
+        },
+        async exists() {
+          return (await getBucket()).file(key).exists();
+        },
+        async download() {
+          return (await getBucket()).file(key).download();
+        },
+        async getMetadata() {
+          const [meta] = await (await getBucket()).file(key).getMetadata();
+          return [{ contentType: meta.contentType }];
+        },
+        async delete(options) {
+          return (await getBucket()).file(key).delete(options);
+        },
+      };
+    },
+  };
+}
+
+/**
  * Фабрика реального ImageStore. Имя бакета — из аргумента или FirebaseEnv.storageBucket
- * (FIREBASE_STORAGE_BUCKET). Проверка имени идёт ДО обращения к Firebase, чтобы явная
+ * (FIREBASE_STORAGE_BUCKET). Проверка имени идёт ДО построения клиента, чтобы явная
  * ошибка конфигурации не требовала реальных креденшелов.
  */
 export function createFirebaseStorageGateway(env: FirebaseEnv, bucketName?: string): FirebaseStorageGateway {
@@ -72,7 +116,5 @@ export function createFirebaseStorageGateway(env: FirebaseEnv, bucketName?: stri
   if (!name) {
     throw new ImageStoreError('Не задан бакет Firebase Storage (FIREBASE_STORAGE_BUCKET).');
   }
-  const app = getAdminApp(env);
-  const bucket = getStorage(app).bucket(name) as unknown as BucketLike;
-  return new FirebaseStorageGateway(bucket);
+  return new FirebaseStorageGateway(createLazyBucket(env, name));
 }
