@@ -37,6 +37,11 @@ export async function getCurrentIdToken(): Promise<string | null> {
   return currentUser ? 'fake-id-token' : null;
 }
 
+/** Redirect-возврат: в тестах no-op (состояние выставляется через __setUser/signInWithGoogle). */
+export async function completeRedirectSignIn(): Promise<void> {
+  /* no-op */
+}
+
 export async function signInWithGoogle(): Promise<void> {
   __setUser({ uid: 'u1', email: 'boss@example.com', displayName: 'Главный Аудитор', photoURL: null });
 }
