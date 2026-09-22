@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { api, setUnauthorizedHandler } from '../api/client';
-import { subscribeAuth, signInWithGoogle, signOutUser } from '../firebase';
+import { subscribeAuth, signInWithGoogle, signOutUser, completeRedirectSignIn } from '../firebase';
 import type { AuthUser } from '../types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -32,6 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       if (cancelled) return;
       setUser(null);
       setStatus('unauthenticated');
+    });
+
+    // Обработать возврат с Google redirect (если это он): SDK выставит пользователя,
+    // после чего сработает onIdTokenChanged ниже. Ошибку redirect не роняем — останемся на login.
+    void completeRedirectSignIn().catch(() => {
+      /* redirect не удался/не было redirect → состояние определит onIdTokenChanged */
     });
 
     const unsubscribe = subscribeAuth((fbUser) => {

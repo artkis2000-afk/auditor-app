@@ -2,7 +2,8 @@ import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onIdTokenChanged,
   type Auth,
@@ -14,6 +15,10 @@ import {
  * Конфиг — из публичных VITE_FIREBASE_* (apiKey и т.п. НЕ секреты: идентифицируют проект, не авторизуют).
  * Сессия/persistence/refresh ID-токена делает сам SDK (persistence по умолчанию — local/IndexedDB);
  * ID-токен вручную в localStorage/sessionStorage НЕ храним.
+ *
+ * Вход — REDIRECT-флоу (не popup): popup ломается о Cross-Origin-Opener-Policy браузера
+ * (блокировка window.close/closed кросс-доменного окна Google). Redirect не использует
+ * второе окно, поэтому COOP на него не влияет.
  */
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
@@ -50,10 +55,18 @@ export async function getCurrentIdToken(): Promise<string | null> {
   return u ? u.getIdToken() : null;
 }
 
-/** Вход через Google (popup). */
+/** Вход через Google (redirect). Уводит на страницу Google; результат обрабатывается на возврате. */
 export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
-  await signInWithPopup(auth, provider);
+  await signInWithRedirect(auth, provider);
+}
+
+/**
+ * Обрабатывает результат redirect-входа при загрузке приложения (вызывать один раз на старте).
+ * При успехе SDK выставляет currentUser (сработает onIdTokenChanged). Ошибку пробрасывает наверх.
+ */
+export async function completeRedirectSignIn(): Promise<void> {
+  await getRedirectResult(auth);
 }
 
 /** Выход. */
